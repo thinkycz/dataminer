@@ -12,12 +12,8 @@ use Thinkycz\LaravelCore\Support\Typer;
     $response->assertRedirect('/login');
 });
 
-\test('authenticated user can view dashboard', function (): void {
+\test('authenticated dashboard redirects to recipes', function (): void {
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
 
-    $response = $this->be($user, 'users')->get('/dashboard', $this->inertiaHeaders());
-
-    $response->assertOk();
-    $response->assertJsonPath('component', 'Dashboard');
-    $response->assertJsonPath('props.auth.user.email', $user->getEmail());
+    $this->be($user, 'users')->get('/dashboard')->assertRedirect('/recipes');
 });

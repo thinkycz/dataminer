@@ -25,11 +25,10 @@ class ConversationRepository
      */
     public function createForUser(User $user, string $message): Conversation
     {
-        return Conversation::create([
+        return Typer::assertInstance($user->conversations()->create([
             'id' => Str::uuid()->toString(),
-            'user_id' => $this->userId($user),
             'title' => Str::limit($message, 35),
-        ]);
+        ]), Conversation::class);
     }
 
     /**
@@ -41,7 +40,7 @@ class ConversationRepository
     {
         $payload = [];
 
-        foreach ($user->conversations()->select(['id', 'title', 'updated_at'])->limit($limit)->get() as $conversation) {
+        foreach ($user->conversations()->select(['id', 'title', 'updated_at'])->orderByDesc('updated_at')->limit($limit)->get() as $conversation) {
             $updatedAt = $conversation->getAttribute('updated_at');
 
             $payload[] = [
@@ -59,17 +58,9 @@ class ConversationRepository
      */
     public function findOwned(string $id, User $user): Conversation|null
     {
-        $conversation = Conversation::find($id);
+        $conversation = $user->conversations()->whereKey($id)->first();
 
-        if ($conversation === null) {
-            return null;
-        }
-
-        if ($this->userId($user) !== Typer::assertNullableInt($conversation->getAttribute('user_id'))) {
-            return null;
-        }
-
-        return $conversation;
+        return $conversation instanceof Conversation ? $conversation : null;
     }
 
     /**
@@ -167,14 +158,6 @@ class ConversationRepository
     private function title(Conversation $conversation): string
     {
         return Typer::assertString($conversation->getAttribute('title'));
-    }
-
-    /**
-     * Resolve the user identifier used by the AI SDK conversation store.
-     */
-    private function userId(User $user): int
-    {
-        return Typer::assertInt($user->getKey());
     }
 
     /**

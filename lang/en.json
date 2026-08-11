@@ -24,5 +24,17 @@
     "Password updated.": "Password updated.",
     "A new password has been sent to your email address.": "A new password has been sent to your email address.",
     "A password reset link has been sent to your email address.": "A password reset link has been sent to your email address.",
-    "Verification email sent.": "Verification email sent."
+    "Verification email sent.": "Verification email sent.",
+    "A run is already active for this recipe.": "A run is already active for this recipe.",
+    "Recipe created.": "Recipe created.",
+    "Recipe generation queued.": "Recipe generation queued.",
+    "Approval decision queued.": "Approval decision queued.",
+    "This approval is missing, stale, or already resolved.": "This approval is missing, stale, or already resolved.",
+    "Only a tested version can be approved.": "Only a tested version can be approved.",
+    "Recipe version approved.": "Recipe version approved.",
+    "The active version cannot be rejected.": "The active version cannot be rejected.",
+    "Recipe version rejected.": "Recipe version rejected.",
+    "Repair generation queued.": "Repair generation queued.",
+    "An approved recipe version is required.": "An approved recipe version is required.",
+    "Run cancellation requested.": "Run cancellation requested."
 }

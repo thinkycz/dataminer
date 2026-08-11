@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
-use Inertia\Inertia;
-use Inertia\Response;
+use Illuminate\Http\RedirectResponse;
+use Thinkycz\LaravelCore\Support\Resolver;
 
 class DashboardController
 {
     /**
      * Show the dashboard.
      */
-    public function __invoke(): Response
+    public function __invoke(): RedirectResponse
     {
-        return Inertia::render('Dashboard');
+        return Resolver::resolveRedirector()->to('/recipes');
     }
 }

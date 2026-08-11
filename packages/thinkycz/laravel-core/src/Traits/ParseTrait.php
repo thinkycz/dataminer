@@ -804,11 +804,15 @@ trait ParseTrait
      */
     public function parseNullableBigDecimal(string $key, int $scale = 0, RoundingMode $roundingMode = RoundingMode::HalfUp): BigDecimal|null
     {
+        if ($scale < 0) {
+            return null;
+        }
+
         $value = $this->mixed($key);
 
         if ($value instanceof BigNumber || \is_string($value) || \is_int($value) || \is_float($value)) {
             try {
-                return BigDecimal::of($value)->toScale($scale, $roundingMode);
+                return BigDecimal::of(\is_float($value) ? (string) $value : $value)->toScale($scale, $roundingMode);
             } catch (Throwable $th) {
                 return null;
             }
@@ -836,11 +840,15 @@ trait ParseTrait
      */
     public function mustParseNullableBigDecimal(string $key, int $scale = 0, RoundingMode $roundingMode = RoundingMode::HalfUp): BigDecimal|null
     {
+        if ($scale < 0) {
+            Panicker::panic(__METHOD__, 'scale must not be negative', \compact('key', 'scale'));
+        }
+
         $value = $this->mixed($key);
 
         if ($value instanceof BigNumber || \is_string($value) || \is_int($value) || \is_float($value)) {
             try {
-                $value = BigDecimal::of($value)->toScale($scale, $roundingMode);
+                $value = BigDecimal::of(\is_float($value) ? (string) $value : $value)->toScale($scale, $roundingMode);
             } catch (Throwable $th) {
                 Panicker::message(__METHOD__, 'assertion failed', \compact('key', 'value'));
             }

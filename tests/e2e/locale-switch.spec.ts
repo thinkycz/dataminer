@@ -9,14 +9,14 @@ test.describe('Locale switcher', () => {
         await page.getByLabel('Confirm password').fill('password1');
         await page.getByLabel('Locale').selectOption('en');
         await page.getByRole('button', { name: 'Register' }).click();
-        await page.waitForURL(/\/dashboard/);
+        await page.waitForURL(/\/recipes/);
     });
 
     test('switching the locale flips the nav and heading strings', async ({
         page,
     }) => {
         await expect(
-            page.getByRole('heading', { name: 'Dashboard' }),
+            page.getByRole('heading', { name: 'Recipes' }),
         ).toBeVisible();
         await expect(
             page.getByRole('button', { name: 'Log out' }),
@@ -65,8 +65,8 @@ test.describe('Locale switcher', () => {
         await switcher.selectOption('cs');
         await page.getByRole('button', { name: 'Save profile' }).click();
 
-        await page.getByRole('link', { name: 'Nástěnka', exact: true }).click();
-        await page.waitForURL(/\/dashboard$/);
+        await page.getByRole('link', { name: 'Recepty', exact: true }).click();
+        await page.waitForURL(/\/recipes$/);
         await page
             .getByRole('link', { name: 'Nastavení', exact: true })
             .click();

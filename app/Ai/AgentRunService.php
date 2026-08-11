@@ -154,19 +154,15 @@ class AgentRunService
     private function resolveConversation(User $user, string $prompt, string|null $conversationId): Conversation
     {
         if ($conversationId !== null) {
-            $conversation = Conversation::query()
-                ->where('id', $conversationId)
-                ->where('user_id', $user->getKey())
-                ->first();
+            $conversation = $user->conversations()->whereKey($conversationId)->first();
 
             if ($conversation instanceof Conversation) {
                 return $conversation;
             }
         }
 
-        return Typer::assertInstance(Conversation::query()->create([
+        return Typer::assertInstance($user->conversations()->create([
             'id' => (string) Str::uuid(),
-            'user_id' => $user->getKey(),
             'title' => Str::limit($prompt, 100, preserveWords: true),
         ]), Conversation::class);
     }
@@ -181,7 +177,8 @@ class AgentRunService
         ConversationMessage::query()->create([
             'id' => $messageId,
             'conversation_id' => $conversationId,
-            'user_id' => $user->getKey(),
+            'participant_type' => Conversation::participantType($user),
+            'participant_id' => $user->getKey(),
             'agent' => ChatAgent::class,
             'role' => 'user',
             'content' => $prompt,
@@ -190,6 +187,7 @@ class AgentRunService
             'tool_results' => [],
             'usage' => [],
             'meta' => [],
+            'approval_state' => null,
         ]);
 
         Conversation::query()

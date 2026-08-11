@@ -203,7 +203,8 @@ class RunChatAgentJob implements ShouldQueue
         ConversationMessage::query()->create([
             'id' => $messageId,
             'conversation_id' => $run->getConversationId(),
-            'user_id' => $user->getKey(),
+            'participant_type' => Conversation::participantType($user),
+            'participant_id' => $user->getKey(),
             'agent' => ChatAgent::class,
             'role' => 'assistant',
             'content' => $assistantContent,
@@ -220,6 +221,7 @@ class RunChatAgentJob implements ShouldQueue
                 ->all(),
             'usage' => [],
             'meta' => [],
+            'approval_state' => null,
         ]);
 
         Conversation::query()

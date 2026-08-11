@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('Full user journey', () => {
-    test('user can register, view dashboard, update profile, and log out', async ({
+    test('user can register, view recipes, update profile, and log out', async ({
         page,
     }) => {
         const email = `e2e-${Date.now()}@example.com`;
@@ -13,9 +13,9 @@ test.describe('Full user journey', () => {
         await page.getByLabel('Locale').selectOption('en');
         await page.getByRole('button', { name: 'Register' }).click();
 
-        await page.waitForURL(/\/dashboard/);
+        await page.waitForURL(/\/recipes/);
         await expect(
-            page.getByRole('heading', { name: 'Dashboard' }),
+            page.getByRole('heading', { name: 'Recipes' }),
         ).toBeVisible();
 
         await page.goto('/settings');

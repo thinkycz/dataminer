@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
-use App\Ai\ConversationRepository;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -45,9 +44,7 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => fn(): array|null => $this->user(),
             ],
-            'conversations' => fn(): array => $request->user() instanceof User
-                ? Resolver::resolve(ConversationRepository::class)->recentForSidebar($request->user())
-                : [],
+            'conversations' => [],
             'flash' => [
                 'success' => static fn(): string|null => self::flashMessage($request, 'success'),
                 'error' => static fn(): string|null => self::flashMessage($request, 'error'),

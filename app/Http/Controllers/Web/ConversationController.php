@@ -17,32 +17,26 @@ use Thinkycz\LaravelCore\Support\Resolver;
 class ConversationController
 {
     /**
-     * Constructor.
-     */
-    public function __construct(
-        private readonly ConversationRepository $conversations,
-        private readonly AgentRunService $runs,
-    ) {}
-
-    /**
      * Show a specific conversation.
      */
     public function show(string $id): RedirectResponse|Response
     {
         $user = User::mustAuth();
+        $conversations = Resolver::resolve(ConversationRepository::class);
+        $runs = Resolver::resolve(AgentRunService::class);
 
-        $conversation = $this->conversations->findOwned($id, $user);
+        $conversation = $conversations->findOwned($id, $user);
 
         if ($conversation === null) {
             return Resolver::resolveRedirector()->to('/dashboard');
         }
 
-        $agent = ChatAgent::make()->continue($this->conversations->conversationId($conversation), $user);
-        $conversationId = $this->conversations->conversationId($conversation);
+        $agent = ChatAgent::make()->continue($conversations->conversationId($conversation), $user);
+        $conversationId = $conversations->conversationId($conversation);
 
         return Inertia::render('Dashboard', [
-            'conversation' => $this->conversations->dashboardPayload($conversation, $agent->messages()),
-            'active_run' => $this->runs->serializeActiveRun($conversationId, $user),
+            'conversation' => $conversations->dashboardPayload($conversation, $agent->messages()),
+            'active_run' => $runs->serializeActiveRun($conversationId, $user),
         ]);
     }
 
@@ -52,14 +46,15 @@ class ConversationController
     public function destroy(Request $request, string $id): RedirectResponse
     {
         $user = User::mustAuth();
+        $conversations = Resolver::resolve(ConversationRepository::class);
 
-        $conversation = $this->conversations->findOwned($id, $user);
+        $conversation = $conversations->findOwned($id, $user);
 
         if ($conversation === null) {
             return Resolver::resolveRedirector()->to('/dashboard');
         }
 
-        $this->conversations->delete($conversation);
+        $conversations->delete($conversation);
 
         $referer = $request->header('referer');
         $isDeletingCurrent = false;

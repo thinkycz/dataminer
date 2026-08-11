@@ -24,5 +24,17 @@
     "Password updated.": "Heslo bolo aktualizované.",
     "A new password has been sent to your email address.": "Na vašu e-mailovú adresu bolo odoslané nové heslo.",
     "A password reset link has been sent to your email address.": "Na vašu e-mailovú adresu bol odoslaný odkaz na obnovenie hesla.",
-    "Verification email sent.": "Overovací e-mail bol odoslaný."
+    "Verification email sent.": "Overovací e-mail bol odoslaný.",
+    "A run is already active for this recipe.": "Pre tento recept už prebieha beh.",
+    "Recipe created.": "Recept bol vytvorený.",
+    "Recipe generation queued.": "Generovanie receptu bolo zaradené do frontu.",
+    "Approval decision queued.": "Rozhodnutie o schválení bolo zaradené do frontu.",
+    "This approval is missing, stale, or already resolved.": "Toto schválenie chýba, je zastarané alebo už vyriešené.",
+    "Only a tested version can be approved.": "Schváliť možno iba otestovanú verziu.",
+    "Recipe version approved.": "Verzia receptu bola schválená.",
+    "The active version cannot be rejected.": "Aktívnu verziu nemožno zamietnuť.",
+    "Recipe version rejected.": "Verzia receptu bola zamietnutá.",
+    "Repair generation queued.": "Generovanie opravy bolo zaradené do frontu.",
+    "An approved recipe version is required.": "Je vyžadovaná schválená verzia receptu.",
+    "Run cancellation requested.": "Bolo požiadané o zrušenie behu."
 }

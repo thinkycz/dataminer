@@ -9,7 +9,7 @@ test.describe('Profile management', () => {
         await page.getByLabel('Confirm password').fill('password1');
         await page.getByLabel('Locale').selectOption('en');
         await page.getByRole('button', { name: 'Register' }).click();
-        await page.waitForURL(/\/dashboard/);
+        await page.waitForURL(/\/recipes/);
     });
 
     test('user can change locale and see success flash', async ({ page }) => {

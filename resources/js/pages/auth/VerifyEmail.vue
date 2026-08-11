@@ -19,8 +19,9 @@ function submit(): void {
         <section
             class="max-w-xl rounded-2xl border border-outline-glass bg-surface-container-lowest p-6 shadow-sm"
         >
+            <h1 class="text-2xl font-bold">{{ t('auth.verify.title') }}</h1>
             <p
-                class="max-w-xl text-xs leading-relaxed text-on-surface-variant font-medium"
+                class="mt-2 max-w-xl text-xs font-medium leading-relaxed text-on-surface-variant"
             >
                 {{ t('auth.verify.description') }}
             </p>

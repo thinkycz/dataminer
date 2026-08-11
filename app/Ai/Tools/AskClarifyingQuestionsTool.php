@@ -63,11 +63,11 @@ class AskClarifyingQuestionsTool implements Tool
      */
     private function question(mixed $value): string
     {
-        if (!\is_string($value) || \trim($value) === '') {
+        if (!\is_string($value) || \mb_trim($value) === '') {
             throw new RuntimeException('Clarifying question must be a non-empty string.');
         }
 
-        return \trim($value);
+        return \mb_trim($value);
     }
 
     /**
@@ -83,11 +83,11 @@ class AskClarifyingQuestionsTool implements Tool
 
         $options = [];
         foreach ($value as $option) {
-            if (!\is_string($option) || \trim($option) === '') {
+            if (!\is_string($option) || \mb_trim($option) === '') {
                 continue;
             }
 
-            $normalized = \trim($option);
+            $normalized = \mb_trim($option);
             if ($this->hasOptionPrefix($normalized)) {
                 throw new RuntimeException('Clarifying options must not include letter prefixes like A:, B), or C.');
             }
@@ -119,7 +119,7 @@ class AskClarifyingQuestionsTool implements Tool
             throw new RuntimeException('recommended_option must be one of the provided options.');
         }
 
-        $recommended = \trim($value);
+        $recommended = \mb_trim($value);
         if (!\in_array($recommended, $options, true)) {
             throw new RuntimeException('recommended_option must be one of the provided options.');
         }
