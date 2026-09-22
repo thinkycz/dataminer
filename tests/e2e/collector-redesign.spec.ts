@@ -157,7 +157,7 @@ test('the builder exposes source-specific mapping controls', async ({
 
 test('website content can be selected into records and columns without typing selectors', async ({
     page,
-}) => {
+}, testInfo) => {
     await registerPilot(page, 'redesign');
     await page
         .getByRole('link', { name: 'New collector', exact: true })
@@ -250,8 +250,18 @@ test('website content can be selected into records and columns without typing se
     });
     await expect(preview).toBeVisible();
     await preview.click({ position: { x: 80, y: 80 } });
+    await expect(
+        page.getByText('Choose the highlighted element below.'),
+    ).toBeVisible();
+    await page.screenshot({
+        path: testInfo.outputPath('interactive-picker.png'),
+        fullPage: true,
+    });
     await page.getByRole('button', { name: 'Use as record' }).first().click();
     await expect(page.getByText('2 matching items')).toBeVisible();
+    await expect(
+        page.getByText('Click text or a link inside a record'),
+    ).toBeVisible();
     await preview.click({ position: { x: 80, y: 80 } });
     await page.getByRole('button', { name: 'Add as column' }).last().click();
     await expect(

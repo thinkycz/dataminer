@@ -33,6 +33,7 @@ const props = defineProps<{
 const { t } = useI18n();
 const processing = ref(false);
 const selected = ref('');
+const pickMode = ref<'records' | 'fields'>('records');
 const sampleData = ref<unknown>(null);
 const sampleError = ref('');
 const definitionError = ref('');
@@ -112,6 +113,12 @@ if (form.source_type === 'website')
         detail_fields: [],
         signed_in_selector: '',
     };
+if (
+    form.source_type === 'website' &&
+    form.website?.record_selector &&
+    form.website.record_selector !== 'body'
+)
+    pickMode.value = 'fields';
 const detailFields = ref<Field[]>(
     Array.isArray(form.website?.detail_fields)
         ? (form.website.detail_fields as Field[])
@@ -285,6 +292,12 @@ function removeField(index: number): void {
 }
 function changeSource(sourceType: string): void {
     form.source_type = sourceType;
+    if (sourceType === 'website')
+        pickMode.value =
+            form.website?.record_selector &&
+            form.website.record_selector !== 'body'
+                ? 'fields'
+                : 'records';
     form.records_path =
         sourceType === 'csv' || sourceType === 'website'
             ? ''
@@ -472,6 +485,10 @@ async function browserAction(
         });
         if (!body) return;
         if (body.opened === true) browserReady.value = true;
+        if (body.opened === true) {
+            browser.candidates = [];
+            browser.matches = [];
+        }
         if (typeof body.screenshot === 'string')
             browser.screenshot = body.screenshot;
         if (typeof body.image === 'string') browser.screenshot = body.image;
@@ -509,6 +526,7 @@ async function browserAction(
     }
 }
 function inspectPoint(event: MouseEvent): void {
+    if (browserBusy.value || browser.accessChallenge) return;
     const target = event.currentTarget as HTMLImageElement;
     const bounds = target.getBoundingClientRect();
     void browserAction('inspect', {
@@ -564,6 +582,8 @@ function chooseRecord(candidate: { selector: string }): void {
         ...(form.website ?? {}),
         record_selector: candidate.selector,
     };
+    pickMode.value = 'fields';
+    browser.candidates = [];
     void browserAction('snapshot', { selector: candidate.selector });
 }
 function chooseField(candidate: { selector: string }): void {
@@ -574,6 +594,7 @@ function chooseField(candidate: { selector: string }): void {
         : form.fields.find((item) => item.name === selected.value);
     if (field) field.path = candidate.selector;
     selected.value = '';
+    browser.candidates = [];
 }
 function addFieldFromCandidate(candidate: {
     selector: string;
@@ -605,10 +626,16 @@ function addFieldFromCandidate(candidate: {
             transforms: [{ op: 'trim' }],
         });
     }
+    browser.candidates = [];
 }
 function startFieldSelection(name: string): void {
     selected.value = name;
+    pickMode.value = 'fields';
     visualSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function setPickMode(mode: 'records' | 'fields'): void {
+    pickMode.value = mode;
+    browser.candidates = [];
 }
 </script>
 
@@ -914,15 +941,25 @@ function startFieldSelection(name: string): void {
                 </div>
                 <div
                     v-if="browser.screenshot && !browser.accessChallenge"
-                    class="flex flex-wrap gap-2 text-sm"
+                    class="flex flex-wrap items-center gap-2 text-sm"
                 >
-                    <span
-                        class="rounded-full bg-primary/10 px-3 py-1 font-medium text-primary"
-                        >{{ t('builder.pick_records_step') }}</span
+                    <Button
+                        :variant="
+                            pickMode === 'records' ? 'primary' : 'secondary'
+                        "
+                        @click="setPickMode('records')"
+                        >{{ t('builder.pick_records_step') }}</Button
                     >
-                    <span
-                        class="rounded-full bg-surface-container-low px-3 py-1 text-on-surface-variant"
-                        >{{ t('builder.pick_columns_step') }}</span
+                    <Button
+                        :variant="
+                            pickMode === 'fields' ? 'primary' : 'secondary'
+                        "
+                        :disabled="
+                            !form.website?.record_selector ||
+                            form.website.record_selector === 'body'
+                        "
+                        @click="setPickMode('fields')"
+                        >{{ t('builder.pick_columns_step') }}</Button
                     >
                     <span
                         v-if="browser.matches.length"
@@ -936,42 +973,130 @@ function startFieldSelection(name: string): void {
                 </div>
                 <div
                     v-if="browser.screenshot"
-                    class="relative mx-auto w-fit max-w-full overflow-hidden rounded-xl border border-outline-glass bg-slate-100 shadow-sm"
+                    class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
                 >
-                    <button
-                        type="button"
-                        class="relative block max-w-full cursor-crosshair text-left"
-                        :aria-label="t('builder.inspect_page')"
-                        @click="inspectPoint"
+                    <div
+                        class="relative w-fit max-w-full overflow-hidden rounded-xl border border-outline-glass bg-slate-100 shadow-sm"
                     >
-                        <img
-                            :src="
-                                browser.screenshot.startsWith('data:')
-                                    ? browser.screenshot
-                                    : `data:image/jpeg;base64,${browser.screenshot}`
-                            "
-                            :alt="t('builder.snapshot_alt')"
-                            class="block max-h-[65vh] max-w-full object-contain"
-                        />
+                        <button
+                            type="button"
+                            class="relative block max-w-full cursor-crosshair text-left disabled:cursor-not-allowed"
+                            :disabled="browserBusy || browser.accessChallenge"
+                            :aria-label="t('builder.inspect_page')"
+                            @click="inspectPoint"
+                        >
+                            <img
+                                :src="
+                                    browser.screenshot.startsWith('data:')
+                                        ? browser.screenshot
+                                        : `data:image/jpeg;base64,${browser.screenshot}`
+                                "
+                                :alt="t('builder.snapshot_alt')"
+                                class="block max-h-[65vh] max-w-full object-contain"
+                            />
+                            <div
+                                v-for="match in browser.matches"
+                                :key="match.index"
+                                class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
+                                :style="{
+                                    left: `${(match.x / browser.viewport.width) * 100}%`,
+                                    top: `${(match.y / browser.viewport.height) * 100}%`,
+                                    width: `${(match.width / browser.viewport.width) * 100}%`,
+                                    height: `${(match.height / browser.viewport.height) * 100}%`,
+                                }"
+                            />
+                        </button>
+                    </div>
+                    <div
+                        v-if="!browser.accessChallenge"
+                        class="rounded-xl border border-outline-glass bg-surface-container-low p-4"
+                    >
+                        <h3 class="font-semibold">
+                            {{
+                                pickMode === 'records'
+                                    ? t('builder.pick_records_step')
+                                    : selected
+                                      ? t('builder.field_selected')
+                                      : t('builder.pick_columns_step')
+                            }}
+                        </h3>
+                        <p class="mt-1 text-sm text-on-surface-variant">
+                            {{
+                                browser.candidates.length
+                                    ? t('builder.choose_element')
+                                    : pickMode === 'records'
+                                      ? t('builder.click_record_hint')
+                                      : t('builder.click_field_hint')
+                            }}
+                        </p>
                         <div
-                            v-for="match in browser.matches"
-                            :key="match.index"
-                            class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
-                            :style="{
-                                left: `${(match.x / browser.viewport.width) * 100}%`,
-                                top: `${(match.y / browser.viewport.height) * 100}%`,
-                                width: `${(match.width / browser.viewport.width) * 100}%`,
-                                height: `${(match.height / browser.viewport.height) * 100}%`,
-                            }"
-                        />
-                    </button>
+                            v-if="browser.candidates.length"
+                            class="mt-4 max-h-[56vh] space-y-2 overflow-y-auto"
+                        >
+                            <div
+                                v-for="candidate in browser.candidates"
+                                :key="candidate.selector"
+                                class="rounded-lg border border-outline-glass bg-white p-3 text-sm"
+                            >
+                                <p class="line-clamp-2 font-medium">
+                                    {{ candidate.text || candidate.tag }}
+                                </p>
+                                <p class="mt-1 text-xs text-on-surface-variant">
+                                    {{
+                                        t('builder.match_count', {
+                                            count: candidate.count,
+                                        })
+                                    }}
+                                </p>
+                                <Button
+                                    class="mt-3 w-full"
+                                    :disabled="browserBusy"
+                                    @click="
+                                        pickMode === 'records'
+                                            ? chooseRecord(candidate)
+                                            : selected
+                                              ? chooseField(candidate)
+                                              : addFieldFromCandidate(candidate)
+                                    "
+                                    >{{
+                                        pickMode === 'records'
+                                            ? t('builder.use_for_record')
+                                            : selected
+                                              ? t('builder.use_for_field')
+                                              : t('builder.add_as_column')
+                                    }}</Button
+                                >
+                                <details
+                                    class="mt-2 text-xs text-on-surface-variant"
+                                >
+                                    <summary class="cursor-pointer">
+                                        {{ t('builder.advanced_selectors') }}
+                                    </summary>
+                                    <code class="mt-1 block break-all">{{
+                                        candidate.selector
+                                    }}</code>
+                                    <Button
+                                        class="mt-2"
+                                        variant="secondary"
+                                        :disabled="browserBusy"
+                                        @click="
+                                            browserAction('act', {
+                                                input: {
+                                                    action: 'click',
+                                                    selector:
+                                                        candidate.selector,
+                                                },
+                                            })
+                                        "
+                                        >{{
+                                            t('builder.click_element')
+                                        }}</Button
+                                    >
+                                </details>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <p
-                    v-if="browser.screenshot"
-                    class="text-xs text-on-surface-variant"
-                >
-                    {{ t('builder.point_hint') }}
-                </p>
                 <details class="rounded-lg border border-outline-glass p-4">
                     <summary class="font-medium">
                         {{ t('builder.advanced_selectors') }}
@@ -1020,55 +1145,6 @@ function startFieldSelection(name: string): void {
                         </div>
                     </div>
                 </details>
-                <div v-if="browser.candidates.length" class="space-y-2">
-                    <p class="font-medium">{{ t('builder.candidates') }}</p>
-                    <div
-                        v-for="candidate in browser.candidates"
-                        :key="candidate.selector"
-                        class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-outline-glass bg-surface-container-low p-3 text-sm"
-                    >
-                        <span class="min-w-0 flex-1">
-                            <span class="block truncate font-medium">{{
-                                candidate.text || candidate.tag
-                            }}</span>
-                            <span class="text-xs text-on-surface-variant">{{
-                                t('builder.match_count', {
-                                    count: candidate.count,
-                                })
-                            }}</span>
-                            <code
-                                class="mt-1 block truncate text-xs text-on-surface-variant"
-                                >{{ candidate.selector }}</code
-                            > </span
-                        ><span class="flex flex-wrap gap-2"
-                            ><Button
-                                variant="secondary"
-                                @click="chooseRecord(candidate)"
-                                >{{ t('builder.use_for_record') }}</Button
-                            ><Button
-                                @click="addFieldFromCandidate(candidate)"
-                                >{{ t('builder.add_as_column') }}</Button
-                            ><Button
-                                v-if="selected"
-                                variant="secondary"
-                                @click="chooseField(candidate)"
-                                >{{ t('builder.use_for_field') }}</Button
-                            ><Button
-                                variant="secondary"
-                                :disabled="browserBusy"
-                                @click="
-                                    browserAction('act', {
-                                        input: {
-                                            action: 'click',
-                                            selector: candidate.selector,
-                                        },
-                                    })
-                                "
-                                >{{ t('builder.click_element') }}</Button
-                            ></span
-                        >
-                    </div>
-                </div>
                 <details class="rounded-lg border border-outline-glass p-4">
                     <summary class="cursor-pointer font-medium">
                         {{ t('builder.login_title') }}
