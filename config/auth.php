@@ -91,7 +91,7 @@ return [
 
     'passwords' => [
         'users' => [
-            'send_raw_password' => true,
+            'send_raw_password' => false,
             'provider' => 'users',
             'table' => 'user_password_resets',
             'expire' => 60,

@@ -42,5 +42,6 @@
     "collector_event_failure": "Zber zlyhal. Diagnostiku nájdete v Datamineri.",
     "collector_event_recovery": "Zberač opäť úspešne zbiera dáta.",
     "collector_event_session_expired": "Uložené prihlásenie vypršalo. Znovu sa prihláste a otestujte zber pred obnovením plánu.",
-    "schedule_unavailable": "Plán nie je dostupný. Skontrolujte aktívnu verziu, pripojenie a nastavenia."
+    "schedule_unavailable": "Plán nie je dostupný. Skontrolujte aktívnu verziu, pripojenie a nastavenia.",
+    "spa.password_reset_url": "/reset-password"
 }

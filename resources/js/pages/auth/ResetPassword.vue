@@ -30,6 +30,7 @@ useBoundLocale();
             :reset-on-error="['password']"
             class="space-y-5"
         >
+            <input type="hidden" name="token" :value="token" />
             <div class="space-y-2">
                 <Label for="email">{{ t('auth.reset.labels.email') }}</Label>
                 <Input
@@ -38,6 +39,7 @@ useBoundLocale();
                     type="email"
                     autocomplete="email"
                     :default-value="email"
+                    readonly
                     :invalid="fieldError(errors, 'email', 'reset').invalid"
                     :described-by="
                         fieldError(errors, 'email', 'reset').describedBy
@@ -47,21 +49,7 @@ useBoundLocale();
                 <FieldError v-bind="fieldError(errors, 'email', 'reset')" />
             </div>
 
-            <div class="space-y-2">
-                <Label for="token">{{ t('auth.reset.labels.token') }}</Label>
-                <Input
-                    id="token"
-                    name="token"
-                    autocomplete="one-time-code"
-                    :default-value="token"
-                    :invalid="fieldError(errors, 'token', 'reset').invalid"
-                    :described-by="
-                        fieldError(errors, 'token', 'reset').describedBy
-                    "
-                    required
-                />
-                <FieldError v-bind="fieldError(errors, 'token', 'reset')" />
-            </div>
+            <FieldError v-bind="fieldError(errors, 'token', 'reset')" />
 
             <div class="space-y-2">
                 <Label for="password">{{

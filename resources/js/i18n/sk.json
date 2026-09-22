@@ -131,8 +131,8 @@
         },
         "forgot": {
             "title": "Zabudnuté heslo",
-            "subtitle": "Zadajte e-mail a pošleme vám nové heslo.",
-            "submit": "Odoslať heslo"
+            "subtitle": "Zadajte e-mail a pošleme vám odkaz na obnovenie hesla.",
+            "submit": "Odoslať odkaz na obnovenie"
         },
         "reset": {
             "title": "Obnoviť heslo",
@@ -148,7 +148,9 @@
         "verify": {
             "title": "Overiť e-mail",
             "description": "Pozrite sa do e-mailu na overovaciu správu. Ak potrebujete novú, môžete si ju vyžiadať nižšie.",
-            "submit": "Odoslať overovací e-mail"
+            "submit": "Odoslať overovací e-mail",
+            "complete_title": "E-mail je overený",
+            "complete_description": "Vaša e-mailová adresa je overená. Môžete pokračovať v práci so zberačmi."
         }
     },
     "settings": {

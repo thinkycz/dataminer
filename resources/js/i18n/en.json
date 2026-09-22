@@ -131,8 +131,8 @@
         },
         "forgot": {
             "title": "Forgot password",
-            "subtitle": "Enter your email and we will send you a new password.",
-            "submit": "Send password"
+            "subtitle": "Enter your email and we will send you a link to reset your password.",
+            "submit": "Send reset link"
         },
         "reset": {
             "title": "Reset password",
@@ -148,7 +148,9 @@
         "verify": {
             "title": "Verify email",
             "description": "Check your inbox for a verification email. Need another one? You can request it below.",
-            "submit": "Send verification email"
+            "submit": "Send verification email",
+            "complete_title": "Email verified",
+            "complete_description": "Your email address is verified. You can keep using your collectors."
         }
     },
     "settings": {

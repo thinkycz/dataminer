@@ -45,6 +45,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     $response->assertJsonPath('component', 'auth/VerifyEmail');
 
     Notification::assertNothingSent();
+    \assertInertiaFlash($response, 'success', \__('Email already verified.'));
 });
 
 \test('guest cannot resend verification', function (): void {

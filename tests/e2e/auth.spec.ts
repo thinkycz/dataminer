@@ -69,7 +69,7 @@ test.describe('Auth flow', () => {
         await expect(page).toHaveTitle(/Forgot password/);
         await expect(page.getByLabel('Email')).toBeVisible();
         await expect(
-            page.getByRole('button', { name: 'Send password' }),
+            page.getByRole('button', { name: 'Send reset link' }),
         ).toBeVisible();
     });
 });

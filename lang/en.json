@@ -42,5 +42,6 @@
     "collector_event_failure": "Your collection failed. Open Dataminer to review diagnostics.",
     "collector_event_recovery": "Your collector is collecting successfully again.",
     "collector_event_session_expired": "Your saved session expired. Reconnect and test it before resuming scheduled collection.",
-    "schedule_unavailable": "The schedule is unavailable. Check the active version, connection and settings."
+    "schedule_unavailable": "The schedule is unavailable. Check the active version, connection and settings.",
+    "spa.password_reset_url": "/reset-password"
 }

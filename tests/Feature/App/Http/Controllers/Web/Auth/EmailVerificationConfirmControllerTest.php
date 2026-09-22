@@ -78,7 +78,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     Event::assertNotDispatched(Verified::class);
 });
 
-\test('invalid token redirects to login with error', function (): void {
+\test('invalid token redirects to login with error', function (string $token): void {
     Typer::assertInstance(UserFactory::new()->unverified()->createOne([
         'email' => 'unverified@example.com',
     ]), User::class);
@@ -86,12 +86,12 @@ use Thinkycz\LaravelCore\Support\Typer;
     $response = $this->get('/email/verify?' . \http_build_query([
         'guard' => 'users',
         'email' => 'unverified@example.com',
-        'token' => 'not-a-real-token',
+        'token' => $token,
     ]));
 
     $response->assertRedirect('/login');
     \assertInertiaFlash($response, 'error', \__('The verification link is invalid or has expired.'));
-});
+})->with(['not-a-real-token', '111111']);
 
 \test('unknown email redirects to login with error', function (): void {
     $response = $this->get('/email/verify?' . \http_build_query([

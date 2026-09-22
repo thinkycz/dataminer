@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import WebForm from '@/components/ui/WebForm.vue';
+import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -72,6 +73,19 @@ const localeOptions = computed(() =>
                         <FieldError
                             v-bind="fieldError(errors, 'email', 'profile')"
                         />
+                        <p
+                            v-if="user?.email_verified_at"
+                            class="text-sm text-primary"
+                        >
+                            {{ t('auth.verify.complete_title') }}
+                        </p>
+                        <Link
+                            v-else
+                            href="/verify-email"
+                            class="inline-block text-sm font-semibold text-primary underline underline-offset-4"
+                        >
+                            {{ t('auth.verify.title') }}
+                        </Link>
                     </div>
 
                     <div class="space-y-2">

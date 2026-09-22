@@ -42,5 +42,6 @@
     "collector_event_failure": "Sběr selhal. Diagnostiku najdete v Datamineru.",
     "collector_event_recovery": "Sběrač opět úspěšně sbírá data.",
     "collector_event_session_expired": "Uložené přihlášení vypršelo. Znovu se přihlaste a otestujte sběr před obnovením plánu.",
-    "schedule_unavailable": "Plán není dostupný. Zkontrolujte aktivní verzi, připojení a nastavení."
+    "schedule_unavailable": "Plán není dostupný. Zkontrolujte aktivní verzi, připojení a nastavení.",
+    "spa.password_reset_url": "/reset-password"
 }

@@ -33,11 +33,12 @@ class VerifyEmailController
 
         if (!$user->hasVerifiedEmail()) {
             $user->sendEmailVerificationNotification();
+            Inertia::flash('success', \__('Verification email sent.'));
+        } else {
+            Inertia::flash('success', \__('Email already verified.'));
         }
 
         $clearThrottle();
-
-        Inertia::flash('success', \__('Verification email sent.'));
 
         return Inertia::render('auth/VerifyEmail');
     }

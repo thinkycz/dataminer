@@ -27,6 +27,7 @@ use Thinkycz\LaravelCore\Support\Typer;
 });
 
 \test('known email updates password and sends notification', function (): void {
+    Config::set('auth.passwords.users.send_raw_password', true);
     Notification::fake();
 
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
@@ -48,6 +49,7 @@ use Thinkycz\LaravelCore\Support\Typer;
 });
 
 \test('known email revokes existing database tokens', function (): void {
+    Config::set('auth.passwords.users.send_raw_password', true);
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
 
     DatabaseToken::inject()
@@ -62,9 +64,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     $this->assertDatabaseCount('database_tokens', 0);
 });
 
-\test('standard broker flow runs when send_raw_password is disabled', function (): void {
-    Config::set('auth.passwords.users.send_raw_password', false);
-
+\test('password recovery sends a reset link without changing the password by default', function (): void {
     Notification::fake();
 
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);

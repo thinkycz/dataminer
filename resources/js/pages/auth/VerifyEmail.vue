@@ -5,9 +5,11 @@ import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import { useBoundLocale } from '@/composables/useBoundLocale';
+import { useSharedProps } from '@/composables/useSharedProps';
 
 const processing = ref(false);
 const { t } = useI18n();
+const { user } = useSharedProps();
 
 useBoundLocale();
 
@@ -30,16 +32,34 @@ function submit(): void {
         <section
             class="max-w-xl rounded-2xl border border-outline-glass bg-surface-container-lowest p-6"
         >
-            <h1 class="text-2xl font-bold">{{ t('auth.verify.title') }}</h1>
+            <h1 class="text-2xl font-bold">
+                {{
+                    t(
+                        user?.email_verified_at
+                            ? 'auth.verify.complete_title'
+                            : 'auth.verify.title',
+                    )
+                }}
+            </h1>
             <p
                 class="mt-2 max-w-xl text-sm font-medium leading-relaxed text-on-surface-variant"
             >
-                {{ t('auth.verify.description') }}
+                {{
+                    t(
+                        user?.email_verified_at
+                            ? 'auth.verify.complete_description'
+                            : 'auth.verify.description',
+                    )
+                }}
             </p>
 
-            <Button class="mt-5" :disabled="processing" @click="submit">{{
-                t('auth.verify.submit')
-            }}</Button>
+            <Button
+                v-if="!user?.email_verified_at"
+                class="mt-5"
+                :disabled="processing"
+                @click="submit"
+                >{{ t('auth.verify.submit') }}</Button
+            >
         </section>
     </AppLayout>
 </template>

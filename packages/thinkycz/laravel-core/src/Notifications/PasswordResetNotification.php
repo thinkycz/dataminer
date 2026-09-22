@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue as ShouldQueueContract;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Thinkycz\LaravelCore\Support\Config;
+use Thinkycz\LaravelCore\Support\Resolver;
 use Thinkycz\LaravelCore\Support\Trans;
 use Thinkycz\LaravelCore\Support\Typer;
 
@@ -85,6 +86,6 @@ class PasswordResetNotification extends Notification implements ShouldQueueContr
             'locale' => $this->locale,
         ]);
 
-        return ($this->spa ?? Trans::inject()->assertString('spa.password_reset_url')) . '?' . $query;
+        return Resolver::resolveUrlGenerator()->to($this->spa ?? Trans::inject()->assertString('spa.password_reset_url')) . '?' . $query;
     }
 }
