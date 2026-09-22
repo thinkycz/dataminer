@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Enums\GuardEnum;
+use App\Http\PilotRegistrationGate;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -24,6 +25,8 @@ class RegisterController extends AutomaticController
     public function __invoke(ApiFormRequest $request): SymfonyResponse
     {
         $validated = $this->validate($request);
+
+        (new PilotRegistrationGate())->assertAllowed($validated->assertString('email'));
 
         $this->hit($this->limit());
 

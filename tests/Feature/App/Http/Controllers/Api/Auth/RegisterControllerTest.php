@@ -6,7 +6,12 @@ use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Models\User;
 use Database\Factories\UserFactory;
 use Illuminate\Support\Facades\Hash;
+use Thinkycz\LaravelCore\Support\Config;
 use Thinkycz\LaravelCore\Support\Resolver;
+
+\beforeEach(function (): void {
+    Config::inject()->assign('pilot.registration_emails', ['new@example.com']);
+});
 
 \test('user can register and receive own resource', function (): void {
     $response = $this->postJson(Resolver::resolveUrlGenerator()->action(RegisterController::class), [
@@ -80,4 +85,16 @@ use Thinkycz\LaravelCore\Support\Resolver;
     ], ['Accept' => 'application/vnd.api+json']);
 
     $response->assertStatus(422);
+});
+
+\test('api registration is closed for an email outside the pilot list', function (): void {
+    Config::inject()->assign('pilot.registration_emails', []);
+
+    $this->postJson(Resolver::resolveUrlGenerator()->action(RegisterController::class), [
+        'email' => 'new@example.com',
+        'password' => 'password1',
+        'locale' => 'en',
+    ], ['Accept' => 'application/vnd.api+json'])->assertForbidden();
+
+    $this->assertDatabaseMissing('users', ['email' => 'new@example.com']);
 });

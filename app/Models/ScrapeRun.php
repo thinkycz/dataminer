@@ -249,6 +249,46 @@ class ScrapeRun extends BaseModel
     }
 
     /**
+     * Whether automatic retention may clean up this dataset.
+     */
+    public function hasManagedRetention(): bool
+    {
+        return $this->assertBool('retention_managed');
+    }
+
+    /**
+     * Whether the result is complete enough for comparison.
+     */
+    public function isComplete(): bool
+    {
+        return $this->assertBool('complete');
+    }
+
+    /** Stored comparison outcome.
+     * @return array<string, mixed>|null
+     */
+    public function getComparison(): array|null
+    {
+        return $this->getAttribute('comparison') === null ? null : Typer::assertStringKeyArray($this->assertArray('comparison'));
+    }
+
+    /** Bounded execution diagnostics.
+     * @return list<string>
+     */
+    public function getDiagnostics(): array
+    {
+        return $this->getAttribute('diagnostics') === null ? [] : \array_values(\array_map(Typer::assertString(...), $this->assertArray('diagnostics')));
+    }
+
+    /**
+     * Credential revision pinned for execution and verification.
+     */
+    public function getConnectionRevision(): int|null
+    {
+        return $this->assertNullableInt('connection_revision');
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -257,6 +297,11 @@ class ScrapeRun extends BaseModel
     {
         return [
             'limits' => 'array',
+            'diagnostics' => 'array',
+            'comparison' => 'array',
+            'complete' => 'boolean',
+            'retention_managed' => 'boolean',
+            'heartbeat_at' => 'datetime',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
         ];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Scraping\RecipeDefinition;
 use Database\Factories\RecipeVersionFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -64,6 +65,26 @@ class RecipeVersion extends BaseModel
     public function getVersion(): int
     {
         return $this->assertInt('version');
+    }
+
+    /**
+     * Identify legacy JavaScript separately from structured definitions.
+     */
+    public function getDefinitionFormat(): string
+    {
+        return $this->assertString('definition_format');
+    }
+
+    /**
+     * Read the immutable structured extraction contract.
+     */
+    public function getDefinition(): RecipeDefinition|null
+    {
+        if ($this->getDefinitionFormat() === 'legacy_js') {
+            return null;
+        }
+
+        return RecipeDefinition::fromArray(Typer::assertStringKeyArray($this->assertArray('definition')));
     }
 
     /**
@@ -172,6 +193,7 @@ class RecipeVersion extends BaseModel
     protected function casts(): array
     {
         return [
+            'definition' => 'array',
             'proposed_columns' => 'array',
             'usage' => 'array',
             'test_summary' => 'array',

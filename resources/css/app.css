@@ -7,10 +7,10 @@
 @source '../**/*.vue';
 
 @theme {
-    --color-primary: #0f172a;
-    --color-primary-container: #1e293b;
+    --color-primary: #2459c4;
+    --color-primary-container: #1948a5;
     --color-surface-bg: #f8fafc;
-    --color-surface-container: #eef2f6;
+    --color-surface-container: #ffffff;
     --color-surface-container-low: #f3f6f9;
     --color-surface-container-lowest: #ffffff;
     --color-on-surface: #0f172a;
@@ -70,5 +70,42 @@
 
     &::-webkit-scrollbar {
         display: none;
+    }
+}
+
+@layer components {
+    .button {
+        @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    }
+    .button-primary {
+        @apply border-primary bg-primary text-white hover:bg-primary-container;
+    }
+    .button-secondary {
+        @apply border-outline-glass bg-white text-on-surface hover:bg-surface-container-low;
+    }
+    .button-danger {
+        @apply border-red-200 bg-red-50 text-red-800 hover:bg-red-100;
+    }
+    .panel {
+        @apply rounded-xl border border-outline-glass bg-white;
+    }
+    .text-link {
+        @apply font-medium text-primary underline-offset-4 hover:underline;
+    }
+}
+@layer base {
+    body {
+        font-size: 16px;
+        line-height: 1.6;
+    }
+    :focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 3px;
+    }
+    summary {
+        cursor: pointer;
+    }
+    textarea {
+        font: inherit;
     }
 }

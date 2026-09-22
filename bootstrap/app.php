@@ -3,13 +3,18 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Jobs\DispatchDueCollectorsJob;
+use App\Jobs\RecoverStaleCollectorRunsJob;
+use App\Jobs\RetainCollectorDatasetsJob;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Thinkycz\LaravelCore\Http\Middleware\AuthShouldUseMiddleware;
 use Thinkycz\LaravelCore\Http\Middleware\SetPreferredLanguageMiddleware;
@@ -18,6 +23,7 @@ use Thinkycz\LaravelCore\Http\Middleware\ValidateAcceptHeaderMiddleware;
 use Thinkycz\LaravelCore\Http\Middleware\ValidateContentTypeHeaderMiddleware;
 use Thinkycz\LaravelCore\Support\Config;
 use Thinkycz\LaravelCore\Support\Env;
+use Thinkycz\LaravelCore\Support\Resolver;
 
 return Application::configure(basePath: \dirname(__DIR__))
     ->withRouting(
@@ -49,6 +55,9 @@ return Application::configure(basePath: \dirname(__DIR__))
         Illuminate\Contracts\Debug\ExceptionHandler::class => Thinkycz\LaravelCore\Exceptions\Handler::class,
     ])
     ->withSchedule(static function (Schedule $schedule): void {
+        $schedule->job(new DispatchDueCollectorsJob())->everyMinute()->withoutOverlapping();
+        $schedule->job(new RecoverStaleCollectorRunsJob())->everyMinute()->withoutOverlapping();
+        $schedule->job(new RetainCollectorDatasetsJob())->dailyAt('03:30')->withoutOverlapping();
         $config = Config::inject();
 
         $timezone = $config->assertString('app.schedule_timezone');
@@ -70,26 +79,12 @@ return Application::configure(basePath: \dirname(__DIR__))
             throw new NotFoundHttpException(previous: $exception);
         });
 
-        $exceptions->render(static function (Illuminate\Validation\ValidationException $exception, Request $request): mixed {
+        $exceptions->render(static function (ValidationException $exception, Request $request): RedirectResponse|null {
             if ($request->header('X-Inertia') !== 'true') {
                 return null;
             }
 
-            $component = $request->header('X-Inertia-Partial-Component') ?: match ($request->path()) {
-                'verify-email' => 'auth/VerifyEmail',
-                'forgot-password' => 'auth/ForgotPassword',
-                'reset-password' => 'auth/ResetPassword',
-                'register' => 'auth/Register',
-                'settings/profile' => 'settings/Profile',
-                'settings/password' => 'settings/Password',
-                default => 'auth/Login',
-            };
-
-            $page = Inertia\Inertia::render($component, [
-                'errors' => (object) $exception->errors(),
-            ])->toResponse($request);
-
-            return $page->setStatusCode(422);
+            return Resolver::resolveRedirector()->back()->withErrors($exception->errors(), $exception->errorBag === '' ? 'default' : $exception->errorBag);
         });
     })
     ->create();

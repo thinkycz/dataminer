@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form } from '@inertiajs/vue3';
+import WebForm from '@/components/ui/WebForm.vue';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -40,17 +40,16 @@ const localeOptions = computed(() =>
             </header>
 
             <section
-                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6 shadow-sm"
+                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6"
             >
                 <h2
-                    class="font-heading mb-4 text-base font-bold text-on-surface"
+                    class="font-heading mb-4 text-lg font-semibold text-on-surface"
                 >
                     {{ t('settings.profile.title') }}
                 </h2>
-                <Form
+                <WebForm
                     v-slot="{ errors, processing }"
-                    action="/settings/profile"
-                    method="post"
+                    endpoint="/settings/profile"
                     class="space-y-5"
                 >
                     <div class="space-y-2">
@@ -103,21 +102,20 @@ const localeOptions = computed(() =>
                             {{ t('settings.profile.submit') }}
                         </Button>
                     </div>
-                </Form>
+                </WebForm>
             </section>
 
             <section
-                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6 shadow-sm"
+                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6"
             >
                 <h2
-                    class="font-heading mb-4 text-base font-bold text-on-surface"
+                    class="font-heading mb-4 text-lg font-semibold text-on-surface"
                 >
                     {{ t('settings.password.title') }}
                 </h2>
-                <Form
+                <WebForm
                     v-slot="{ errors, processing }"
-                    action="/settings/password"
-                    method="post"
+                    endpoint="/settings/password"
                     :reset-on-success="['password', 'new_password']"
                     class="space-y-5"
                 >
@@ -178,7 +176,7 @@ const localeOptions = computed(() =>
                             {{ t('settings.password.submit') }}
                         </Button>
                     </div>
-                </Form>
+                </WebForm>
             </section>
         </div>
     </AppLayout>

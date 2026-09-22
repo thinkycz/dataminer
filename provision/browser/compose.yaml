@@ -1,0 +1,24 @@
+services:
+  browser:
+    build:
+      context: ../..
+      dockerfile: provision/browser/Dockerfile
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./seccomp_profile.json
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/pwuser/.cache:size=64m,uid=1000,gid=1000
+    shm_size: 256m
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    environment:
+      BROWSER_SERVICE_SECRET: ${BROWSER_SERVICE_SECRET:?Set a random 32-character or longer service secret}
+    ports:
+      - 127.0.0.1:3210:3210
+    restart: unless-stopped

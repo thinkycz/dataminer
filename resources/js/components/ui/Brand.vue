@@ -1,39 +1,17 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import { Layers } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
-import { useSharedProps } from '@/composables/useSharedProps';
-
-withDefaults(
-    defineProps<{
-        href?: string;
-    }>(),
-    {
-        href: '/',
-    },
-);
-
-const { app } = useSharedProps();
+withDefaults(defineProps<{ href?: string }>(), { href: '/' });
 const { t } = useI18n();
 </script>
-
 <template>
-    <Link :href="href" class="flex items-center gap-3 font-medium select-none">
-        <div
-            class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary font-heading text-base font-bold text-white shadow-[0_2px_8px_rgba(15,23,42,0.2)]"
-        >
-            S
-        </div>
-        <div class="text-left">
-            <h1
-                class="mb-0.5 font-heading text-sm font-bold tracking-tight text-on-surface leading-none"
-            >
-                {{ app.name }}
-            </h1>
-            <p
-                class="font-mono text-[9px] font-semibold tracking-wider text-on-surface-variant uppercase opacity-75 leading-none"
-            >
-                {{ t('brand.subtitle') }}
-            </p>
-        </div>
-    </Link>
+    <Link :href="href" class="inline-flex items-center gap-3"
+        ><span
+            class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white"
+            ><Layers :size="22" aria-hidden="true" /></span
+        ><span class="text-lg font-semibold tracking-tight">{{
+            t('app.name')
+        }}</span></Link
+    >
 </template>

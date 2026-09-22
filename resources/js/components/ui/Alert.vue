@@ -22,7 +22,7 @@ const variants = {
         role="alert"
         :class="
             cn(
-                'rounded-xl border px-4 py-3 text-xs font-medium',
+                'rounded-xl border px-4 py-3 text-sm font-medium',
                 variants[props.variant],
             )
         "

@@ -70,6 +70,7 @@ class ScrapeRunController
     public function show(Request $request, string $scrapeRun): Response
     {
         $run = (new RecipeRepository())->findOwnedRun($scrapeRun, User::mustAuth());
+        $recipe = $run->recipe()->getResults();
         $columns = $run->columns()->getQuery()->orderBy('position')->get();
         $allowed = $columns->mapWithKeys(static fn(ScrapeRunColumn $column): array => [$column->getColumnKey() => $column])->all();
         $visible = $this->visibleColumns($request, \array_keys($allowed));
@@ -78,12 +79,16 @@ class ScrapeRunController
         $this->sortRows($query, $request, $allowed);
 
         return Inertia::render('runs/Show', [
+            'recipe' => $recipe === null ? null : ['id' => $recipe->getKey(), 'name' => $recipe->getName()],
             'run' => [
                 'id' => $run->getId(),
                 'kind' => $run->getKind(),
                 'status' => $run->getStatus(),
                 'progress' => $run->getProgress(),
                 'row_count' => $run->getRowCount(),
+                'complete' => $run->isComplete(),
+                'diagnostics' => $run->getDiagnostics(),
+                'comparison' => $run->getComparison(),
                 'byte_count' => $run->getByteCount(),
                 'request_count' => $run->getRequestCount(),
                 'logs' => $run->getLogs(),
@@ -116,9 +121,7 @@ class ScrapeRunController
     public function cancel(string $scrapeRun): RedirectResponse
     {
         $run = (new RecipeRepository())->findOwnedRun($scrapeRun, User::mustAuth());
-        if ($run->isActive()) {
-            $run->update(['status' => ScrapeRun::STATUS_CANCELLED, 'finished_at' => \now()]);
-        }
+        ScrapeRun::query()->whereKey($run->getId())->whereIn('status', [ScrapeRun::STATUS_QUEUED, ScrapeRun::STATUS_RUNNING])->update(['status' => ScrapeRun::STATUS_CANCELLED, 'finished_at' => \now()]);
         Inertia::flash('success', \__('Run cancellation requested.'));
 
         return Resolver::resolveRedirector()->back();

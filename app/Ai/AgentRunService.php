@@ -24,6 +24,8 @@ class AgentRunService
      */
     public function start(User $user, string $prompt, string|null $conversationId): array
     {
+        (new AssistanceGate())->assertAvailable($user);
+
         $conversation = $this->resolveConversation($user, $prompt, $conversationId);
 
         $activeRun = $this->activeRunForConversation(Typer::assertString($conversation->getKey()), $user);

@@ -25,3 +25,10 @@ use Thinkycz\LaravelCore\Support\Typer;
     $response->assertRedirect('/dashboard');
     $response->assertCookie(Resolver::resolveDatabaseTokenGuard($user->getTable())->cookieName());
 });
+
+\test('Inertia login errors redirect back with readable field errors', function (): void {
+    $this->from('/login')->post('/login', [
+        'email' => 'missing@example.com', 'password' => 'password1',
+    ], $this->inertiaHeaders())->assertRedirect('/login')->assertSessionHasErrors('email');
+    $this->get('/login', $this->inertiaHeaders())->assertJsonPath('props.errors.email', \__('auth.failed'));
+});
