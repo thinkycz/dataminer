@@ -332,6 +332,7 @@ test('website content can be selected into records and columns without typing se
     await expect(
         page.getByText('span.price', { exact: true }).last(),
     ).toBeVisible();
+    await expect(page.getByLabel('Column name').first()).toHaveValue('price');
     await expect(
         page.getByRole('button', { name: 'Run test preview' }),
     ).toBeEnabled();

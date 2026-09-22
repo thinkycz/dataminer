@@ -112,6 +112,16 @@ const pickAction = computed(() =>
             : pickLabels[pickMode.value].action,
     ),
 );
+const visibleCandidates = computed(() => {
+    if (pickMode.value !== 'fields' || browser.matches.length === 0)
+        return browser.candidates;
+    const recordCount = browser.matches.length;
+    return [...browser.candidates].sort(
+        (left, right) =>
+            Number(right.count === recordCount) -
+            Number(left.count === recordCount),
+    );
+});
 const connectionForm = reactive({
     kind: 'bearer',
     token: '',
@@ -727,11 +737,36 @@ function addFieldFromCandidate(candidate: {
     selector: string;
     tag: string;
 }): void {
-    const tokens = candidate.selector.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? [];
-    const suggested = (tokens.at(-1) ?? candidate.tag)
-        .replace(/[^A-Za-z0-9_]/g, '_')
-        .replace(/^[^A-Za-z]+/, '');
-    const base = suggested || 'column';
+    const selector = candidate.selector.toLowerCase();
+    const semanticNames = [
+        'price',
+        'title',
+        'name',
+        'date',
+        'rating',
+        'availability',
+        'stock',
+        'category',
+        'description',
+    ];
+    const semanticName = semanticNames.find((name) =>
+        new RegExp(`(?:^|[^a-z])${name}(?:$|[^a-z])`).test(selector),
+    );
+    const className = candidate.selector
+        .match(/\.([A-Za-z][A-Za-z0-9_-]*)/g)
+        ?.at(-1)
+        ?.slice(1)
+        .replace(/[-_]+/g, '_');
+    const base =
+        semanticName ??
+        (['h1', 'h2', 'h3', 'h4'].includes(candidate.tag)
+            ? 'title'
+            : (className ??
+              (candidate.tag === 'a'
+                  ? 'link'
+                  : candidate.tag === 'img'
+                    ? 'image'
+                    : 'column')));
     const existing = new Set(form.fields.map((field) => field.name));
     let name = base;
     for (let suffix = 2; existing.has(name); suffix++)
@@ -1158,7 +1193,7 @@ function setPickMode(mode: PickMode): void {
                             class="mt-4 max-h-[56vh] space-y-2 overflow-y-auto"
                         >
                             <div
-                                v-for="candidate in browser.candidates"
+                                v-for="candidate in visibleCandidates"
                                 :key="candidate.selector"
                                 class="rounded-lg border border-outline-glass bg-white p-3 text-sm"
                             >
