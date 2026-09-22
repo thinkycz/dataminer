@@ -6,15 +6,18 @@ test.describe('Scraping recipe workspace', () => {
         await registerPilot(page, 'recipes');
         await page.getByRole('link', { name: 'New collector' }).click();
         await page
-            .getByLabel('Website address')
+            .getByLabel('Source URL')
             .fill('https://example.com/products');
-        await page.getByRole('button', { name: 'Next', exact: true }).click();
+        await page
+            .getByText('Collection notes (optional)', { exact: true })
+            .click();
         await page
             .getByLabel('Data to collect')
             .fill('Extract the public name and price from every product card.');
-        await page.getByRole('button', { name: 'Next', exact: true }).click();
         await page.getByLabel('Collector name').fill('Public product catalog');
-        await page.getByRole('button', { name: 'Save collector' }).click();
+        await page
+            .getByRole('button', { name: 'Continue to field mapping' })
+            .click();
 
         await page.waitForURL(/\/recipes\/\d+\/setup$/);
         await expect(

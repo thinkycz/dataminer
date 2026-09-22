@@ -34,7 +34,7 @@
     },
     "recipes": {
         "title": "Data collectors",
-        "subtitle": "Turn website information into a table you can use.",
+        "subtitle": "Collect website, JSON, CSV, and XML data in one workspace.",
         "new": "New collector",
         "search": "Search your collectors",
         "name": "Collector name",
@@ -44,7 +44,7 @@
         "run": "Collect data",
         "empty": "Your first collector starts here",
         "create_title": "Set up a data collector",
-        "create_help": "Tell us where to look and what you need. We will guide you through the rest.",
+        "create_help": "Choose your source, then map the fields you want to collect.",
         "security_notice": "This is an internal prototype. Generated code runs on the application server without a security sandbox. If you cannot review the code, ask someone technical to help before approving.",
         "back": "Data collectors",
         "start_url": "Website address",
@@ -207,14 +207,14 @@
         "sk": "Slovenčina"
     },
     "home": {
-        "how_title": "From website to spreadsheet",
-        "how_help": "Choose a website, describe the data, review a sample, then collect and download. Reuse your collector whenever you need fresh data.",
+        "how_title": "From source to spreadsheet",
+        "how_help": "Choose a website, JSON, CSV, or XML source. Map your fields, test a preview, then activate your collector and set a schedule.",
         "view_results": "View results",
         "open_collector": "Open collector",
         "continue_setup": "Continue setup",
         "no_matches": "No collectors found",
         "search_help": "Try a different name or clear your search.",
-        "empty_help": "A collector remembers which website to visit and what data to bring back. Start with one website."
+        "empty_help": "Start with a website or a JSON, CSV, or XML feed. Choose your columns and preview the results before collecting."
     },
     "setup": {
         "website": "Website",
@@ -228,7 +228,16 @@
         "review_title": "Give your collector a name",
         "review_help": "Check the details below. Saving creates a draft; you will choose when to prepare and test it.",
         "name_example": "For example: Weekly product prices",
-        "step": "Step {current} of {total}"
+        "step": "Step {current} of {total}",
+        "source_help": "Choose how your source provides data.",
+        "website_description": "Pick repeating content on a web page.",
+        "json_description": "Map fields from a JSON API or feed.",
+        "csv_description": "Collect rows from a CSV file URL.",
+        "xml_description": "Map records from an XML feed.",
+        "source_url": "Source URL",
+        "optional_notes": "Collection notes (optional)",
+        "mapping_next": "Next, choose your columns and test a preview before activating.",
+        "continue_mapping": "Continue to field mapping"
     },
     "flow": {
         "progress": "Collector progress",

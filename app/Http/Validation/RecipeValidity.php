@@ -63,6 +63,14 @@ class RecipeValidity
     }
 
     /**
+     * Supported collector source formats.
+     */
+    public function sourceType(): Validity
+    {
+        return $this->baseValidity->make()->varchar(16)->inString(['website', 'json', 'csv', 'xml']);
+    }
+
+    /**
      * Instructions validation rules.
      */
     public function instructions(): Validity

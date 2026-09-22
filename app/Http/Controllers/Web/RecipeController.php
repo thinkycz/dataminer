@@ -97,15 +97,30 @@ class RecipeController
         $validated = $this->validateRequest($request, [
             'name' => $validity->name()->required()->toArray(),
             'start_url' => $validity->startUrl()->required()->toArray(),
+            'source_type' => $validity->sourceType()->nullable()->toArray(),
             'instructions' => $validity->instructions()->nullable()->toArray(),
         ]);
 
+        $sourceType = $validated->assertNullableString('source_type') ?? 'json';
         $recipe = Recipe::create([
             'user_id' => $user->getKey(),
             'name' => $validated->assertString('name'),
             'start_url' => $validated->assertString('start_url'),
             'instructions' => $validated->assertNullableString('instructions') ?? '',
             'status' => Recipe::STATUS_DRAFT,
+            'setup_draft' => [
+                'schema_version' => 1,
+                'source_type' => $sourceType,
+                'url' => $validated->assertString('start_url'),
+                'connection_id' => null,
+                'records_path' => '',
+                'fields' => [['name' => 'name', 'path' => 'name', 'type' => 'string', 'required' => true, 'transforms' => [['op' => 'trim']]]],
+                'pagination' => ['mode' => 'none'],
+                'limits' => ['rows' => 10000, 'bytes' => 50000000, 'requests' => 100, 'pages' => 100, 'seconds' => 600],
+                'validation' => ['allow_empty' => false],
+                'comparison' => ['identity' => [], 'fields' => []],
+                ...($sourceType === 'website' ? ['website' => ['record_selector' => 'body', 'detail_fields' => []]] : []),
+            ],
         ]);
 
         Inertia::flash('success', \__('Recipe created.'));

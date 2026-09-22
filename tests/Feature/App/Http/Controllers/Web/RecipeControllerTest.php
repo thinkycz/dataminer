@@ -45,6 +45,33 @@ use Thinkycz\LaravelCore\Support\Typer;
         ->assertOk()->assertJsonCount(1, 'props.recipes.data')->assertJsonPath('props.recipes.data.0.name', 'Mine');
 });
 
+\test('creation opens a persisted draft for the selected source format', function (string $sourceType): void {
+    $user = UserFactory::new()->createOne();
+    $response = $this->be($user, 'users')->post('/recipes', [
+        'name' => 'Public catalog',
+        'start_url' => 'https://example.com/catalog',
+        'source_type' => $sourceType,
+    ], $this->inertiaHeaders());
+
+    $recipe = Recipe::query()->firstOrFail();
+    $response->assertRedirect('/recipes/' . $recipe->getKey() . '/setup');
+    \expect($recipe->getSetupDraft())->not->toBeNull();
+    $this->get('/recipes/' . $recipe->getKey() . '/setup', $this->inertiaHeaders())
+        ->assertOk()
+        ->assertJsonPath('props.definition.source_type', $sourceType)
+        ->assertJsonPath('props.definition.url', 'https://example.com/catalog');
+})->with(['website', 'json', 'csv', 'xml']);
+
+\test('creation rejects an unsupported source format', function (): void {
+    $user = UserFactory::new()->createOne();
+    $this->be($user, 'users')->from('/recipes/create')->post('/recipes', [
+        'name' => 'Public catalog',
+        'start_url' => 'https://example.com/catalog',
+        'source_type' => 'script',
+    ], $this->inertiaHeaders())->assertRedirect('/recipes/create')->assertSessionHasErrors(['source_type']);
+    $this->assertDatabaseCount('recipes', 0);
+});
+
 \test('disabled generation leaves the recipe draft unchanged and queues nothing', function (): void {
     RecipeGenerationAgent::fake();
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);

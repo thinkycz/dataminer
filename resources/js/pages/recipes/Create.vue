@@ -12,6 +12,7 @@ const processing = ref(false);
 function submit(form: {
     name: string;
     start_url: string;
+    source_type: string;
     instructions: string;
 }): void {
     if (processing.value) return;

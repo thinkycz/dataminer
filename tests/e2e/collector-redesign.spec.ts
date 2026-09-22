@@ -24,17 +24,11 @@ async function createCollector(page: Page): Promise<string> {
     await page
         .getByRole('link', { name: 'New collector', exact: true })
         .click();
-    await page
-        .getByLabel('Website address')
-        .fill('https://example.com/products');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page
-        .getByLabel('Data to collect')
-        .fill('Collect product names and prices, one product per row.');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('radio', { name: 'JSON API', exact: true }).check();
+    await page.getByLabel('Source URL').fill('https://example.com/products');
     await page.getByLabel('Collector name').fill('Office supplies');
     await page
-        .getByRole('button', { name: 'Save collector', exact: true })
+        .getByRole('button', { name: 'Continue to field mapping' })
         .click();
     await page.waitForURL(/\/recipes\/\d+\/setup$/);
     return page.url().replace(/\/setup$/, '');
@@ -57,52 +51,54 @@ async function saveAndPreview(
     ).toBeVisible();
 }
 
-test('guided setup validates each step and opens the independent builder', async ({
-    page,
-}, testInfo) => {
-    await registerPilot(page, 'redesign');
-    await page.screenshot({
-        path: testInfo.outputPath('home.png'),
-        fullPage: true,
+for (const [source, label] of [
+    ['website', 'Website'],
+    ['json', 'JSON API'],
+    ['csv', 'CSV file'],
+    ['xml', 'XML feed'],
+]) {
+    test(`source selection opens and retains a ${source} builder`, async ({
+        page,
+    }, testInfo) => {
+        await registerPilot(page, 'redesign');
+        await page
+            .getByRole('link', { name: 'New collector', exact: true })
+            .click();
+        await expect(page.getByRole('radio')).toHaveCount(4);
+        await page
+            .getByRole('button', { name: 'Continue to field mapping' })
+            .click();
+        await expect(page.getByLabel('Collector name')).toBeFocused();
+        await page.getByLabel('Collector name').fill('Office supplies');
+        await page
+            .getByRole('button', { name: 'Continue to field mapping' })
+            .click();
+        await expect(page.getByLabel('Source URL')).toBeFocused();
+        await page
+            .getByLabel('Source URL')
+            .fill('https://example.com/products');
+        await page.getByRole('radio', { name: label, exact: true }).check();
+        await page.screenshot({
+            path: testInfo.outputPath('setup.png'),
+            fullPage: true,
+        });
+        await page
+            .getByRole('button', { name: 'Continue to field mapping' })
+            .click();
+        await page.waitForURL(/\/recipes\/\d+\/setup$/);
+        await expect(
+            page.getByRole('heading', { name: 'Build your collector' }),
+        ).toBeVisible();
+        await expect(page.getByLabel('Source format')).toHaveValue(source!);
+        await page.reload();
+        await expect(page.getByLabel('Source format')).toHaveValue(source!);
+        await expect(page.getByText('export async')).not.toBeVisible();
+        await page.screenshot({
+            path: testInfo.outputPath('builder.png'),
+            fullPage: true,
+        });
     });
-    await page
-        .getByRole('link', { name: 'New collector', exact: true })
-        .click();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await expect(page.getByLabel('Website address')).toBeFocused();
-    await page
-        .getByLabel('Website address')
-        .fill('https://example.com/products');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Data to collect').fill('Product name and price');
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await expect(page.getByLabel('Website address')).toHaveValue(
-        'https://example.com/products',
-    );
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await expect(page.getByLabel('Data to collect')).toHaveValue(
-        'Product name and price',
-    );
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Collector name').fill('Office supplies');
-    await page.screenshot({
-        path: testInfo.outputPath('setup.png'),
-        fullPage: true,
-    });
-    await page
-        .getByRole('button', { name: 'Save collector', exact: true })
-        .click();
-    await page.waitForURL(/\/recipes\/\d+\/setup$/);
-    await expect(
-        page.getByRole('heading', { name: 'Build your collector' }),
-    ).toBeVisible();
-    await expect(page.getByLabel('Source format')).toBeVisible();
-    await expect(page.getByText('export async')).not.toBeVisible();
-    await page.screenshot({
-        path: testInfo.outputPath('builder.png'),
-        fullPage: true,
-    });
-});
+}
 
 test('manual setup explores a sample and saves corrected source fields', async ({
     page,

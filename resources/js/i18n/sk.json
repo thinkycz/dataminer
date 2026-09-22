@@ -34,7 +34,7 @@
     },
     "recipes": {
         "title": "Zberače dát",
-        "subtitle": "Preveďte informácie z webu do prehľadnej tabuľky.",
+        "subtitle": "Zbierajte dáta z webov, JSON, CSV a XML na jednom mieste.",
         "new": "Nový zberač",
         "search": "Hľadať v zberačoch",
         "name": "Názov zberača",
@@ -44,7 +44,7 @@
         "run": "Zbierať dáta",
         "empty": "Tu začína váš prvý zberač",
         "create_title": "Nastaviť zberač dát",
-        "create_help": "Zadajte web a opíšte, čo potrebujete. Ďalšími krokmi vás prevedieme.",
+        "create_help": "Vyberte zdroj a potom namapujte polia, ktoré chcete zbierať.",
         "security_notice": "Ide o interný prototyp. Vygenerovaný kód beží na serveri aplikácie bez bezpečnostnej izolácie. Ak kód neviete skontrolovať, požiadajte pred schválením o pomoc technicky skúseného človeka.",
         "back": "Zberače dát",
         "start_url": "Adresa webu",
@@ -207,14 +207,14 @@
         "sk": "Slovenčina"
     },
     "home": {
-        "how_title": "Z webu do tabuľky",
-        "how_help": "Vyberte web, opíšte dáta, skontrolujte ukážku a stiahnite výsledky. Zberač môžete znova použiť, kedykoľvek potrebujete čerstvé dáta.",
+        "how_title": "Od zdroja k tabuľke",
+        "how_help": "Vyberte web alebo zdroj JSON, CSV či XML. Namapujte polia, otestujte náhľad a potom aktivujte zberač a nastavte plán.",
         "view_results": "Zobraziť výsledky",
         "open_collector": "Otvoriť zberač",
         "continue_setup": "Pokračovať v nastavení",
         "no_matches": "Žiadny zberač sa nenašiel",
         "search_help": "Skúste iný názov alebo zrušte hľadanie.",
-        "empty_help": "Zberač si pamätá, ktorý web navštíviť a aké dáta získať. Začnite jedným webom."
+        "empty_help": "Začnite webom alebo zdrojom JSON, CSV či XML. Vyberte stĺpce a pred zberom skontrolujte náhľad výsledkov."
     },
     "setup": {
         "website": "Web",
@@ -228,7 +228,16 @@
         "review_title": "Pomenujte svoj zberač",
         "review_help": "Skontrolujte údaje nižšie. Uložením vytvoríte návrh; prípravu a test spustíte sami.",
         "name_example": "Napríklad: Týždenné ceny produktov",
-        "step": "Krok {current} z {total}"
+        "step": "Krok {current} z {total}",
+        "source_help": "Vyberte, v akom formáte zdroj poskytuje dáta.",
+        "website_description": "Vyberte opakujúci sa obsah na webovej stránke.",
+        "json_description": "Mapujte polia z JSON API alebo dátového zdroja.",
+        "csv_description": "Zbierajte riadky zo súboru CSV dostupného na URL.",
+        "xml_description": "Mapujte záznamy z dátového zdroja XML.",
+        "source_url": "URL zdroja",
+        "optional_notes": "Poznámky k zberu (voliteľné)",
+        "mapping_next": "V ďalšom kroku vyberiete stĺpce a pred aktiváciou otestujete náhľad.",
+        "continue_mapping": "Pokračovať na mapovanie polí"
     },
     "flow": {
         "progress": "Postup nastavenia zberača",
