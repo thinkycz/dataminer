@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Ai\Tools;
 
-use App\Scraping\RecipeCandidateService;
+use App\Ai\AssistanceGate;
+use App\Ai\LegacyRecipeCandidateService;
+use App\Models\User;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Concerns\InteractsWithApprovals;
@@ -29,7 +31,9 @@ class TestRecipeCandidateTool implements Approvable, Tool
      */
     public function handle(Request $request): string
     {
-        return (new RecipeCandidateService())->acceptApprovedToolCall($request);
+        (new AssistanceGate())->assertAvailable(User::auth());
+
+        return (new LegacyRecipeCandidateService())->acceptApprovedToolCall($request);
     }
 
     /**

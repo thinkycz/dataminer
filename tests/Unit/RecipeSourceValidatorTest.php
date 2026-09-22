@@ -19,6 +19,11 @@ use App\Scraping\RecipeSourceValidator;
     'syntax' => 'export async function scrape(context) {',
 ]);
 
+\test('Playwright DOM evaluation methods are accepted', function (): void {
+    (new RecipeSourceValidator())->validate('export async function scrape(context) { await context.page.$$eval(".product", items => items.length); await context.page.$eval("h1", item => item.textContent); }');
+    \expect(true)->toBeTrue();
+});
+
 \test('network guard blocks local private reserved and non-http targets', function (string $url): void {
     \expect(fn() => (new NetworkGuard())->assertPublicHttpUrl($url))->toThrow(InvalidArgumentException::class);
 })->with([

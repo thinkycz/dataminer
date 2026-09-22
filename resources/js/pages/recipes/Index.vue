@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { Plus, Search, Play } from '@lucide/vue';
+import { ArrowRight, Globe, Plus, Search } from '@lucide/vue';
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import Input from '@/components/ui/Input.vue';
-
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StatusBadge from '@/components/ui/StatusBadge.vue';
+import EmptyState from '@/components/ui/EmptyState.vue';
+import Pagination from '@/components/ui/Pagination.vue';
 interface RecipeItem {
     id: number;
     name: string;
@@ -15,19 +18,15 @@ interface RecipeItem {
     active_version: number | null;
     last_run: { id: string; status: string } | null;
 }
-
-interface Paginator<T> {
-    data: T[];
-    links: Array<{ url: string | null; label: string; active: boolean }>;
-}
-
 const props = defineProps<{
-    recipes: Paginator<RecipeItem>;
+    recipes: {
+        data: RecipeItem[];
+        links: Array<{ url: string | null; label: string; active: boolean }>;
+    };
     filters: { search: string };
 }>();
 const { t } = useI18n();
 const search = ref(props.filters.search);
-
 function applySearch(): void {
     router.get(
         '/recipes',
@@ -36,113 +35,100 @@ function applySearch(): void {
     );
 }
 </script>
-
 <template>
     <AppLayout :title="t('recipes.title')">
-        <header
-            class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        <PageHeader
+            :title="t('recipes.title')"
+            :description="t('recipes.subtitle')"
+            ><Link
+                v-if="recipes.data.length || filters.search"
+                href="/recipes/create"
+                class="button button-primary"
+                ><Plus :size="18" />{{ t('recipes.new') }}</Link
+            ></PageHeader
         >
-            <div>
-                <h1 class="text-2xl font-bold">{{ t('recipes.title') }}</h1>
-                <p class="mt-1 text-sm text-on-surface-variant">
-                    {{ t('recipes.subtitle') }}
-                </p>
-            </div>
-            <Link href="/recipes/create"
-                ><Button
-                    ><Plus :size="16" />{{ t('recipes.new') }}</Button
-                ></Link
-            >
-        </header>
-        <form class="mb-5 flex max-w-lg gap-2" @submit.prevent="applySearch">
-            <Input v-model="search" :placeholder="t('recipes.search')" />
-            <Button type="submit"><Search :size="16" /></Button>
-        </form>
         <div
-            class="overflow-hidden rounded-2xl border border-outline-glass bg-surface-container shadow-sm"
+            class="mb-8 rounded-xl border border-blue-100 bg-blue-50/60 p-5 sm:p-6"
         >
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                    <thead
-                        class="bg-surface-container-low text-on-surface-variant"
-                    >
-                        <tr>
-                            <th class="p-4">{{ t('recipes.name') }}</th>
-                            <th class="p-4">{{ t('recipes.status') }}</th>
-                            <th class="p-4">
-                                {{ t('recipes.active_version') }}
-                            </th>
-                            <th class="p-4">{{ t('recipes.last_run') }}</th>
-                            <th class="p-4"></th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-outline-glass">
-                        <tr v-for="recipe in recipes.data" :key="recipe.id">
-                            <td class="p-4">
-                                <Link
-                                    :href="`/recipes/${recipe.id}`"
-                                    class="font-semibold text-primary hover:underline"
-                                    >{{ recipe.name }}</Link
-                                >
-                                <div
-                                    class="mt-1 max-w-md truncate text-on-surface-variant"
-                                >
-                                    {{ recipe.start_url }}
-                                </div>
-                            </td>
-                            <td class="p-4">
-                                <span
-                                    class="rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary"
-                                    >{{ recipe.status }}</span
-                                >
-                            </td>
-                            <td class="p-4">
-                                {{ recipe.active_version ?? '—' }}
-                            </td>
-                            <td class="p-4">
-                                {{ recipe.last_run?.status ?? '—' }}
-                            </td>
-                            <td class="p-4 text-right">
-                                <Button
-                                    v-if="recipe.active_version"
-                                    class="h-8"
-                                    @click="
-                                        router.post(
-                                            `/recipes/${recipe.id}/runs/start`,
-                                        )
-                                    "
-                                    ><Play :size="14" />{{
-                                        t('recipes.run')
-                                    }}</Button
-                                >
-                            </td>
-                        </tr>
-                        <tr v-if="recipes.data.length === 0">
-                            <td
-                                colspan="5"
-                                class="p-10 text-center text-on-surface-variant"
-                            >
-                                {{ t('recipes.empty') }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+            <h2 class="font-semibold">{{ t('home.how_title') }}</h2>
+            <p class="mt-1 text-sm text-on-surface-variant">
+                {{ t('home.how_help') }}
+            </p>
         </div>
-        <nav class="mt-4 flex flex-wrap gap-2">
-            <Link
-                v-for="link in recipes.links"
-                :key="link.label"
-                :href="link.url ?? ''"
-                :class="[
-                    'rounded-lg border px-3 py-2 text-xs',
-                    link.active
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-outline-glass',
-                    !link.url ? 'pointer-events-none opacity-40' : '',
-                ]"
-                v-html="link.label"
-            />
-        </nav>
+        <form class="mb-6 flex max-w-lg gap-2" @submit.prevent="applySearch">
+            <Input
+                v-model="search"
+                :aria-label="t('recipes.search')"
+                :placeholder="t('recipes.search')"
+            /><Button
+                type="submit"
+                variant="secondary"
+                :aria-label="t('common.search')"
+                ><Search :size="18"
+            /></Button>
+        </form>
+        <div v-if="recipes.data.length" class="grid gap-4">
+            <article
+                v-for="recipe in recipes.data"
+                :key="recipe.id"
+                class="panel flex flex-col justify-between gap-5 p-5 sm:flex-row sm:items-center sm:p-6"
+            >
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <Link
+                            :href="`/recipes/${recipe.id}`"
+                            class="text-lg font-semibold break-words hover:text-primary"
+                            >{{ recipe.name }}</Link
+                        ><StatusBadge :status="recipe.status" />
+                    </div>
+                    <p
+                        class="mt-2 flex items-start gap-2 text-sm text-on-surface-variant"
+                    >
+                        <Globe :size="16" class="mt-1 shrink-0" /><span
+                            class="break-all"
+                            >{{ recipe.start_url }}</span
+                        >
+                    </p>
+                </div>
+                <div class="flex shrink-0 flex-wrap items-center gap-3">
+                    <Link
+                        v-if="recipe.last_run"
+                        :href="`/scrape-runs/${recipe.last_run.id}`"
+                        class="button button-secondary"
+                        >{{ t('home.view_results') }}</Link
+                    ><Link
+                        :href="`/recipes/${recipe.id}`"
+                        class="button button-primary"
+                        >{{
+                            recipe.active_version && recipe.status === 'ready'
+                                ? t('home.open_collector')
+                                : t('home.continue_setup')
+                        }}<ArrowRight :size="16"
+                    /></Link>
+                </div>
+            </article>
+        </div>
+        <EmptyState
+            v-else
+            :title="filters.search ? t('home.no_matches') : t('recipes.empty')"
+            :description="
+                filters.search ? t('home.search_help') : t('home.empty_help')
+            "
+            ><Button
+                v-if="filters.search"
+                variant="secondary"
+                @click="
+                    search = '';
+                    applySearch();
+                "
+                >{{ t('dataset.clear') }}</Button
+            ><Link
+                v-else
+                href="/recipes/create"
+                class="button button-primary"
+                >{{ t('recipes.new') }}</Link
+            ></EmptyState
+        >
+        <Pagination :links="recipes.links" />
     </AppLayout>
 </template>

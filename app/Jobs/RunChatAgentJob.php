@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Ai\AgentConversationContext;
 use App\Ai\AgentRunService;
 use App\Ai\Agents\ChatAgent;
+use App\Ai\AssistanceGate;
 use App\Models\AgentRun;
 use App\Models\AgentRunEvent;
 use App\Models\User;
@@ -46,6 +47,18 @@ class RunChatAgentJob implements ShouldQueue
         }
 
         $user = $this->user($run);
+        if (!(new AssistanceGate())->available($user)) {
+            $run->forceFill([
+                'status' => AgentRun::STATUS_CANCELLED,
+                'finished_at' => \now(),
+            ])->save();
+            $runs->recordEvent($run, AgentRunEvent::TYPE_RUN_CANCELLED, [
+                'status' => AgentRun::STATUS_CANCELLED,
+            ]);
+
+            return;
+        }
+
         $this->authenticateAs($user);
 
         $run->forceFill([

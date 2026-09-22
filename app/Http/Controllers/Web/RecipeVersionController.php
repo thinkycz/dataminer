@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Ai\RecipeGenerationService;
+use App\Models\CollectorConnection;
+use App\Models\CollectorSchedule;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\ScrapeRun;
@@ -31,9 +33,22 @@ class RecipeVersionController
         }
 
         Resolver::resolveDatabaseManager()->transaction(static function () use ($owned, $version): void {
+            CollectorSchedule::query()->where('recipe_id', $owned->getKey())->lockForUpdate()->first();
+            $connectionId = $version->getDefinition()?->getConnectionId();
+            if ($connectionId !== null) {
+                CollectorConnection::query()->whereKey($connectionId)->lockForUpdate()->firstOrFail();
+            }
+            Recipe::query()->whereKey($owned->getKey())->lockForUpdate()->firstOrFail();
+            $currentVersion = RecipeVersion::query()->whereKey($version->getKey())->lockForUpdate()->firstOrFail();
+            if ($currentVersion->getStatus() !== RecipeVersion::STATUS_TESTED) {
+                Thrower::default()->message('version', Typer::assertString(\__('Only a tested version can be approved.')))->throw();
+            }
             $owned->versions()->getQuery()->where('status', RecipeVersion::STATUS_APPROVED)->update(['status' => RecipeVersion::STATUS_TESTED]);
             $version->update(['status' => RecipeVersion::STATUS_APPROVED, 'approved_at' => \now()]);
             $owned->update(['active_version_id' => $version->getKey(), 'status' => Recipe::STATUS_READY]);
+            if ($version->getDefinitionFormat() !== 'legacy_js') {
+                CollectorSchedule::query()->where('recipe_id', $owned->getKey())->update(['recipe_version_id' => $version->getKey()]);
+            }
         });
         Inertia::flash('success', \__('Recipe version approved.'));
 
@@ -48,10 +63,14 @@ class RecipeVersionController
         $repository = new RecipeRepository();
         $owned = $repository->findOwned($recipe, User::mustAuth());
         $version = $repository->findOwnedVersion($owned, $recipeVersion);
-        if ($owned->getActiveVersionId() === $version->getKey()) {
-            Thrower::default()->message('version', Typer::assertString(\__('The active version cannot be rejected.')))->throw();
-        }
-        $version->update(['status' => RecipeVersion::STATUS_REJECTED]);
+        Resolver::resolveDatabaseManager()->transaction(static function () use ($owned, $version): void {
+            $currentRecipe = Recipe::query()->whereKey($owned->getKey())->lockForUpdate()->firstOrFail();
+            $currentVersion = RecipeVersion::query()->whereKey($version->getKey())->lockForUpdate()->firstOrFail();
+            if ($currentRecipe->getActiveVersionId() === $currentVersion->getKey()) {
+                Thrower::default()->message('version', Typer::assertString(\__('The active version cannot be rejected.')))->throw();
+            }
+            $currentVersion->update(['status' => RecipeVersion::STATUS_REJECTED]);
+        });
         Inertia::flash('success', \__('Recipe version rejected.'));
 
         return Resolver::resolveRedirector()->back();

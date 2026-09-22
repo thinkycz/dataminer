@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 use Laravel\Ai\Models\ConversationMessage;
 use Thinkycz\LaravelCore\Support\Typer;
 
-\test('owner can queue an exact pending tool approval decision', function (): void {
+\test('disabled owner cannot continue a pending tool approval', function (): void {
     RecipeGenerationAgent::fake();
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
     $conversation = $user->conversations()->create(['id' => (string) Str::uuid7(), 'title' => 'Recipe']);
@@ -41,8 +41,9 @@ use Thinkycz\LaravelCore\Support\Typer;
 
     $this->be($user, 'users')->from('/recipes/' . $recipe->getKey())
         ->post('/recipes/' . $recipe->getKey() . '/approvals/call-1/decide', ['decision' => 'approve'], $this->inertiaHeaders())
-        ->assertRedirect();
-    RecipeGenerationAgent::assertQueued(fn($prompt): bool => $prompt->hasApprovalDecisions());
+        ->assertForbidden();
+    RecipeGenerationAgent::assertNeverQueued();
+    static::assertSame(Recipe::STATUS_PENDING_APPROVAL, $recipe->refresh()->getStatus());
 });
 
 \test('stale and cross-user approval attempts are rejected', function (): void {
@@ -51,5 +52,5 @@ use Thinkycz\LaravelCore\Support\Typer;
     $recipe = Typer::assertInstance(RecipeFactory::new()->for($owner)->createOne(), Recipe::class);
 
     $this->be($other, 'users')->post('/recipes/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertNotFound();
-    $this->be($owner, 'users')->post('/recipes/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertStatus(422);
+    $this->be($owner, 'users')->post('/recipes/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertForbidden();
 });

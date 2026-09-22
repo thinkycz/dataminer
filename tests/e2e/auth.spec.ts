@@ -23,10 +23,31 @@ test.describe('Auth flow', () => {
             page.getByLabel('Password', { exact: true }),
         ).toBeVisible();
         await expect(page.getByLabel('Confirm password')).toBeVisible();
-        await expect(page.getByLabel('Locale')).toBeVisible();
+        await expect(page.getByLabel('Language')).toBeVisible();
         await expect(
             page.getByRole('button', { name: 'Register' }),
         ).toBeVisible();
+    });
+
+    test('unlisted addresses cannot sign up for the pilot', async ({
+        page,
+    }) => {
+        await page.goto('/register');
+        await page
+            .getByLabel('Email', { exact: true })
+            .fill('unlisted@example.com');
+        await page.getByLabel('Password', { exact: true }).fill('password1');
+        await page.getByLabel('Confirm password').fill('password1');
+        await page.getByLabel('Language').selectOption('en');
+        const rejected = page.waitForResponse(
+            (response) =>
+                response.url().endsWith('/register') &&
+                response.request().method() === 'POST',
+        );
+        await page
+            .getByRole('button', { name: 'Register', exact: true })
+            .click();
+        expect((await rejected).status()).toBe(403);
     });
 
     test('login form has links to forgot password and register', async ({

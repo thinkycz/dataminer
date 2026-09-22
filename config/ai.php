@@ -152,7 +152,12 @@ return [
         'openrouter' => [
             'driver' => 'openrouter',
             'key' => $env->parseNullableString('OPENROUTER_API_KEY'),
-            'model' => $env->parseNullableString('OPENROUTER_MODEL') ?? 'meta-llama/llama-3-8b-instruct',
+            'model' => $env->parseNullableString('OPENROUTER_MODEL') ?? 'dots-studio/dots-3-note-preview:free',
+            'models' => [
+                'text' => [
+                    'default' => $env->parseNullableString('OPENROUTER_MODEL') ?? 'dots-studio/dots-3-note-preview:free',
+                ],
+            ],
         ],
 
         'voyageai' => [

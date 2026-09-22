@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Scraping;
 
 use App\Jobs\ExecuteScrapeRunJob;
+use App\Models\CollectorConnection;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\ScrapeRun;
@@ -21,7 +22,22 @@ class ScrapeRunService
      */
     public function start(Recipe $recipe, RecipeVersion $version, User $user, string $kind): ScrapeRun
     {
+        \abort_unless($recipe->user()->whereKey($user->getKey())->exists() && $recipe->versions()->whereKey($version->getKey())->exists(), 404);
+
         $run = Resolver::resolveDatabaseManager()->transaction(function () use ($recipe, $version, $user, $kind): ScrapeRun {
+            $definition = $version->getDefinition();
+            if ($definition !== null) {
+                (new CollectorConnectionService())->forDefinition($definition, $user);
+            }
+            $connectionId = $definition?->getConnectionId();
+            $connectionRevision = null;
+            if ($connectionId !== null) {
+                $connection = CollectorConnection::query()->where('user_id', $user->getKey())->lockForUpdate()->findOrFail($connectionId);
+                $connectionRevision = $connection->getStateRevision();
+                if (ScrapeRun::query()->where('collector_connection_id', $connectionId)->whereIn('status', [ScrapeRun::STATUS_QUEUED, ScrapeRun::STATUS_RUNNING])->exists()) {
+                    Thrower::default()->message('run', Typer::assertString(\__('A run is already active for this recipe.')))->throw();
+                }
+            }
             $lockedRecipe = Recipe::query()->lockForUpdate()->findOrFail($recipe->getKey());
 
             $activeExists = $lockedRecipe->runs()->getQuery()
@@ -40,6 +56,8 @@ class ScrapeRunService
                 'id' => (string) Str::uuid7(),
                 'recipe_id' => $recipe->getKey(),
                 'recipe_version_id' => $version->getKey(),
+                'collector_connection_id' => $connectionId,
+                'connection_revision' => $connectionRevision,
                 'user_id' => $user->getKey(),
                 'kind' => $kind,
                 'status' => ScrapeRun::STATUS_QUEUED,
@@ -48,10 +66,11 @@ class ScrapeRunService
                 'byte_count' => 0,
                 'request_count' => 0,
                 'limits' => $limits,
+                'retention_managed' => $version->getDefinitionFormat() !== 'legacy_js',
             ]);
         });
 
-        Resolver::resolveQueueingDispatcher()->dispatch(new ExecuteScrapeRunJob($run->getId()));
+        Resolver::resolveQueueingDispatcher()->dispatch((new ExecuteScrapeRunJob($run->getId()))->afterCommit());
 
         return $run;
     }

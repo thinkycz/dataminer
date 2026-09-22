@@ -14,7 +14,7 @@ class RecipeVersionObserver
      */
     public function updating(RecipeVersion $version): void
     {
-        if ($version->isDirty(['recipe_id', 'version', 'source', 'checksum', 'proposed_columns', 'generation_reason', 'approval_call_id'])) {
+        if ($version->isDirty(['recipe_id', 'version', 'source', 'checksum', 'proposed_columns', 'generation_reason', 'approval_call_id', 'definition_format', 'schema_version', 'definition'])) {
             throw new LogicException('Recipe version source and identity are immutable.');
         }
     }

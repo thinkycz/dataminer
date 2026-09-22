@@ -1,21 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { registerPilot } from './pilot';
 
 test.describe('Full user journey', () => {
     test('user can register, view recipes, update profile, and log out', async ({
         page,
     }) => {
-        const email = `e2e-${Date.now()}@example.com`;
-
-        await page.goto('/register');
-        await page.getByLabel('Email').fill(email);
-        await page.getByLabel('Password', { exact: true }).fill('password1');
-        await page.getByLabel('Confirm password').fill('password1');
-        await page.getByLabel('Locale').selectOption('en');
-        await page.getByRole('button', { name: 'Register' }).click();
-
-        await page.waitForURL(/\/recipes/);
+        await registerPilot(page, 'e2e');
         await expect(
-            page.getByRole('heading', { name: 'Recipes' }),
+            page.getByRole('heading', { name: 'Data collectors' }),
         ).toBeVisible();
 
         await page.goto('/settings');
@@ -29,7 +21,9 @@ test.describe('Full user journey', () => {
         await page.waitForURL(/\/login|\/$/);
     });
 
-    test('login form shows error for unknown user', async ({ page }) => {
+    test('unknown user cannot enter the collector workspace', async ({
+        page,
+    }) => {
         await page.goto('/login');
 
         await page.getByLabel('Email').fill('unknown-e2e@example.com');
@@ -37,5 +31,10 @@ test.describe('Full user journey', () => {
         await page.getByRole('button', { name: 'Log in' }).click();
 
         await expect(page.getByRole('alert').first()).toBeVisible();
+        await expect(page).toHaveURL(/\/login$/);
+        await page.goto('/recipes');
+        await expect(
+            page.getByRole('heading', { name: 'Log in' }),
+        ).toBeVisible();
     });
 });

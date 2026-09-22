@@ -4,63 +4,64 @@ declare(strict_types=1);
 
 namespace App\Scraping;
 
+use App\Models\CollectorConnection;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
+use App\Models\ScrapeRun;
 use App\Models\User;
-use Laravel\Ai\Tools\Request;
 use Thinkycz\LaravelCore\Support\Resolver;
 use Thinkycz\LaravelCore\Support\Typer;
 
 class RecipeCandidateService
 {
     /**
-     * Validate and persist an approved tool call, then dispatch its test.
+     * Save a validated mutable draft while preserving the active version.
      */
-    public function acceptApprovedToolCall(Request $request): string
+    public function saveDraft(Recipe $recipe, User $user, RecipeDefinition $definition): void
     {
-        $recipeId = Typer::assertInt($request['recipe_id']);
-        $source = Typer::assertString($request['source']);
-        $callId = Typer::assertString($request->toolCallId());
-        (new RecipeSourceValidator())->validate($source);
+        $this->assertOwner($recipe, $user);
+        (new CollectorConnectionService())->forDefinition($definition, $user);
+        $recipe->update(['setup_draft' => $definition->toArray()]);
+    }
 
-        $version = Resolver::resolveDatabaseManager()->transaction(function () use ($recipeId, $source, $callId, $request): RecipeVersion {
-            $existing = RecipeVersion::query()->where('approval_call_id', $callId)->first();
+    /**
+     * Snapshot a draft as an immutable candidate and queue a bounded preview.
+     */
+    public function preview(Recipe $recipe, User $user): ScrapeRun
+    {
+        $this->assertOwner($recipe, $user);
 
-            if ($existing instanceof RecipeVersion) {
-                return $existing;
+        return Resolver::resolveDatabaseManager()->transaction(function () use ($recipe, $user): ScrapeRun {
+            $draft = Recipe::query()->findOrFail($recipe->getKey())->getSetupDraft();
+            $definition = RecipeDefinition::fromArray($draft ?? []);
+            if ($definition->getConnectionId() !== null) {
+                CollectorConnection::query()->where('user_id', $user->getKey())->lockForUpdate()->findOrFail($definition->getConnectionId());
             }
-
-            $recipe = Recipe::query()->lockForUpdate()->findOrFail($recipeId);
-            $latestVersion = $recipe->versions()->getQuery()->max('version');
-            $nextVersion = $latestVersion === null ? 1 : Typer::assertInt($latestVersion) + 1;
-
+            $locked = Recipe::query()->lockForUpdate()->findOrFail($recipe->getKey());
+            \abort_unless($draft === $locked->getSetupDraft(), 409);
+            $latest = $locked->versions()->getQuery()->max('version');
             $version = RecipeVersion::create([
-                'recipe_id' => $recipe->getKey(),
-                'version' => $nextVersion,
-                'source' => $source,
-                'checksum' => \hash('sha256', $source),
-                'proposed_columns' => Typer::assertArray($request['proposed_columns']),
-                'generation_summary' => Typer::assertString($request['generation_summary']),
-                'generation_reason' => Typer::assertString($request['generation_reason']),
+                'recipe_id' => $locked->getKey(),
+                'version' => $latest === null ? 1 : Typer::assertInt($latest) + 1,
+                'source' => '',
+                'definition_format' => 'definition',
+                'schema_version' => 1,
+                'definition' => $definition->toArray(),
+                'checksum' => $definition->checksum(),
+                'proposed_columns' => [],
+                'generation_reason' => 'manual',
                 'status' => RecipeVersion::STATUS_TESTING,
-                'approval_call_id' => $callId,
             ]);
 
-            $recipe->update(['status' => Recipe::STATUS_TESTING]);
-
-            return $version;
+            return (new ScrapeRunService())->start($locked, $version, $user, ScrapeRun::KIND_TEST);
         });
+    }
 
-        if (!$version->runs()->getQuery()->where('kind', 'test')->exists()) {
-            $recipe = $version->recipe()->getResults();
-            if ($recipe instanceof Recipe) {
-                $user = $recipe->user()->getResults();
-                if ($user instanceof User) {
-                    (new ScrapeRunService())->start($recipe, $version, $user, 'test');
-                }
-            }
-        }
-
-        return 'Approved candidate stored as immutable version ' . $version->getVersion() . ' and its bounded test was queued.';
+    /**
+     * Enforce ownership even when called outside an HTTP controller.
+     */
+    private function assertOwner(Recipe $recipe, User $user): void
+    {
+        \abort_unless($recipe->user()->whereKey($user->getKey())->exists(), 404);
     }
 }

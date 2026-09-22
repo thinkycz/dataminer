@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Scraping;
 
+use App\Models\CollectorConnection;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\ScrapeRow;
 use App\Models\ScrapeRun;
 use App\Models\ScrapeRunColumn;
+use App\Models\User;
 use InvalidArgumentException;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -24,7 +26,9 @@ class ScrapeRunner
      */
     public function execute(ScrapeRun $run): void
     {
-        if ($run->getStatus() === ScrapeRun::STATUS_CANCELLED) {
+        if (ScrapeRun::query()->whereKey($run->getId())->where('status', ScrapeRun::STATUS_QUEUED)->update([
+            'status' => ScrapeRun::STATUS_RUNNING, 'started_at' => \now(), 'heartbeat_at' => \now(), 'progress' => 1,
+        ]) !== 1) {
             return;
         }
 
@@ -35,22 +39,26 @@ class ScrapeRunner
             throw new RuntimeException('Run relationships are unavailable.');
         }
 
-        (new RecipeSourceValidator())->validate($version->getSource());
+        if ($version->getDefinitionFormat() !== 'legacy_js') {
+            $this->executeDefinition($run, $version, $recipe);
 
-        if (!\hash_equals($version->getChecksum(), \hash('sha256', $version->getSource()))) {
-            throw new RuntimeException('Recipe source checksum mismatch.');
+            return;
         }
-
-        (new NetworkGuard())->assertPublicHttpUrl($recipe->getStartUrl());
-        $run->update(['status' => ScrapeRun::STATUS_RUNNING, 'started_at' => \now(), 'progress' => 1]);
 
         $directory = \sys_get_temp_dir() . '/dataminer-' . $run->getId();
         $sourcePath = $directory . '/recipe.mjs';
         $filesystem = Resolver::resolveFilesystem();
-        $filesystem->makeDirectory($directory, 0o700, true, true);
-        $filesystem->put($sourcePath, $version->getSource());
-
         try {
+            (new RecipeSourceValidator())->validate($version->getSource());
+            if (!\hash_equals($version->getChecksum(), \hash('sha256', $version->getSource()))) {
+                throw new RuntimeException('Recipe source checksum mismatch.');
+            }
+            (new NetworkGuard())->assertPublicHttpUrl($recipe->getStartUrl());
+            if ($run->fresh()?->getStatus() !== ScrapeRun::STATUS_RUNNING) {
+                return;
+            }
+            $filesystem->makeDirectory($directory, 0o700, true, true);
+            $filesystem->put($sourcePath, $version->getSource());
             $summary = $this->runProcess($run, $recipe, $sourcePath);
             $this->complete($run, $version, $recipe, $summary);
         } catch (Throwable $throwable) {
@@ -64,7 +72,9 @@ class ScrapeRunner
 
             if ($run->getKind() === ScrapeRun::KIND_TEST) {
                 $version->update(['status' => RecipeVersion::STATUS_DRAFT]);
-                $recipe->update(['status' => Recipe::STATUS_FAILED]);
+                if ($recipe->getActiveVersionId() === null) {
+                    $recipe->update(['status' => Recipe::STATUS_FAILED]);
+                }
             }
 
             if (!$cancelled) {
@@ -72,6 +82,69 @@ class ScrapeRunner
             }
         } finally {
             $filesystem->deleteDirectory($directory);
+        }
+    }
+
+    /**
+     * Execute configuration without loading source code or an AI provider.
+     */
+    private function executeDefinition(ScrapeRun $run, RecipeVersion $version, Recipe $recipe): void
+    {
+        try {
+            $definition = $version->getDefinition();
+            if ($definition === null || !\hash_equals($version->getChecksum(), $definition->checksum())) {
+                throw new RuntimeException('Definition checksum mismatch.');
+            }
+            $user = $recipe->user()->getResults();
+            if (!$user instanceof User) {
+                throw new RuntimeException('Collector owner is unavailable.');
+            }
+            $connections = new CollectorConnectionService();
+            $connection = $connections->forDefinition($definition, $user);
+            if ($connection !== null && $connection->getStateRevision() !== $run->getConnectionRevision()) {
+                throw new RuntimeException('Connection changed; preview the current credentials again.');
+            }
+            $bounded = $definition->toArray();
+            $definitionLimits = Typer::assertStringKeyArray(Typer::assertArray($bounded['limits']));
+            foreach ($run->getLimits() as $key => $maximum) {
+                $definitionLimits[$key] = \min(Typer::assertInt($definitionLimits[$key]), Typer::assertInt($maximum));
+            }
+            $bounded['limits'] = $definitionLimits;
+            $boundedDefinition = RecipeDefinition::fromArray($bounded);
+            $result = $definition->getSourceType() === 'website'
+                ? (new WebsiteAdapter())->execute($boundedDefinition, $connection)
+                : (new FeedAdapter())->execute($boundedDefinition, $connections->headers($connection));
+            $fresh = $run->fresh();
+            if (!$fresh instanceof ScrapeRun || $fresh->getStatus() === ScrapeRun::STATUS_CANCELLED) {
+                return;
+            }
+            Resolver::resolveDatabaseManager()->transaction(function () use ($run, $result): void {
+                foreach ($result->rows as $index => $row) {
+                    $this->assertCanonicalRow($row);
+                    ScrapeRow::create(['run_id' => $run->getId(), 'sequence' => $index + 1, 'payload' => $row]);
+                }
+                $run->update(['complete' => $result->complete, 'diagnostics' => $result->diagnostics, 'heartbeat_at' => \now()]);
+            });
+            $boundedSample = $run->getKind() === ScrapeRun::KIND_TEST && $result->rows !== [] && $result->diagnostics !== [] &&
+                \array_diff($result->diagnostics, ['Row limit reached.', 'row_limit', 'page_limit']) === [];
+            if (!$result->complete && !$boundedSample) {
+                throw new RuntimeException('Extraction is incomplete: ' . \implode('; ', $result->diagnostics));
+            }
+            $this->complete($run, $version, $recipe, ['rows' => \count($result->rows), 'bytes' => $result->bytes, 'requests' => $result->requests, 'pages' => $result->pages]);
+        } catch (Throwable $error) {
+            if ($run->fresh()?->getStatus() === ScrapeRun::STATUS_CANCELLED) {
+                return;
+            }
+            $connectionId = $version->getDefinition()?->getConnectionId();
+            if ($connectionId !== null && (\str_contains($error->getMessage(), 'auth_expired') || \preg_match('/HTTP (401|403)/', $error->getMessage()) === 1)) {
+                (new CollectorConnectionService())->expire($connectionId, $run->getConnectionRevision());
+            }
+            $run->update(['status' => ScrapeRun::STATUS_FAILED, 'error' => $this->sanitize($error->getMessage()), 'finished_at' => \now(), 'complete' => false]);
+            if ($run->getKind() === ScrapeRun::KIND_TEST) {
+                $version->update(['status' => RecipeVersion::STATUS_DRAFT]);
+            }
+            (new RunOutcomeService())->record($run);
+            throw $error;
         }
     }
 
@@ -84,15 +157,25 @@ class ScrapeRunner
     {
         $config = Config::inject();
         $limits = $run->getLimits();
-        $input = ['start_url' => $recipe->getStartUrl()];
+        $input = ['start_url' => $recipe->getStartUrl(), 'kind' => $run->getKind()];
+        $environment = [];
+        foreach ([...\array_keys(\getenv()), ...\array_keys($_ENV)] as $name) {
+            if (\is_string($name)) {
+                $environment[$name] = false;
+            }
+        }
         $process = new Process([
             $config->assertString('scraping.node_binary'),
             Resolver::resolveApp()->resourcePath('scraping/runner.mjs'),
             $sourcePath,
             \mb_rtrim(\strtr(\base64_encode(Typer::assertString(\json_encode($input))), '+/', '-_'), '='),
             \mb_rtrim(\strtr(\base64_encode(Typer::assertString(\json_encode($limits))), '+/', '-_'), '='),
+            \base64_encode(Typer::assertString(\json_encode([
+                'headless' => $config->assertBool('scraping.headless'),
+                'channel' => $config->assertNullableString('scraping.browser_channel'),
+            ]))),
         ], Resolver::resolveApp()->basePath(), [
-            'HOME' => \sys_get_temp_dir(),
+            ...$environment,
             'PATH' => '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
             'NODE_ENV' => 'production',
         ], null, Typer::assertInt($limits['seconds']) + 5);
@@ -188,13 +271,31 @@ class ScrapeRunner
         return $summary;
     }
 
+    /** Atomically publish only a run that has not been cancelled or recovered.
+     * @param array<string, int> $summary
+     */
+    private function complete(ScrapeRun $run, RecipeVersion $version, Recipe $recipe, array $summary): void
+    {
+        Resolver::resolveDatabaseManager()->transaction(function () use ($run, $version, $recipe, $summary): void {
+            $current = ScrapeRun::query()->whereKey($run->getId())->lockForUpdate()->firstOrFail();
+            if ($current->getStatus() !== ScrapeRun::STATUS_RUNNING) {
+                return;
+            }
+            $this->publish($run, $version, $recipe, $summary);
+        });
+    }
+
     /**
      * Finish ingestion, column detection, and private artifact creation.
      *
      * @param array<string, int> $summary
      */
-    private function complete(ScrapeRun $run, RecipeVersion $version, Recipe $recipe, array $summary): void
+    private function publish(ScrapeRun $run, RecipeVersion $version, Recipe $recipe, array $summary): void
     {
+        if ($run->getKind() === ScrapeRun::KIND_TEST && $summary['rows'] === 0) {
+            throw new RuntimeException('The test collected no rows. Check the page access and product selectors before approving this version.');
+        }
+
         $this->detectColumns($run);
         [$jsonPath, $csvPath, $disk] = $this->writeArtifacts($run);
 
@@ -210,9 +311,19 @@ class ScrapeRunner
             'finished_at' => \now(),
         ]);
 
-        if ($run->getKind() === ScrapeRun::KIND_TEST) {
+        (new RunOutcomeService())->record($run);
+
+        Recipe::query()->whereKey($recipe->getKey())->lockForUpdate()->firstOrFail();
+        $version = RecipeVersion::query()->whereKey($version->getKey())->lockForUpdate()->firstOrFail();
+        if ($run->getKind() === ScrapeRun::KIND_TEST && $version->getStatus() === RecipeVersion::STATUS_TESTING) {
             $version->update(['status' => RecipeVersion::STATUS_TESTED, 'test_summary' => $summary]);
-            $recipe->update(['status' => Recipe::STATUS_PENDING_APPROVAL]);
+            $connectionId = $version->getDefinition()?->getConnectionId();
+            if ($connectionId !== null) {
+                CollectorConnection::query()->whereKey($connectionId)->where('status', 'ready')->where('state_revision', $run->getConnectionRevision())->update(['verified_at' => \now()]);
+            }
+            if ($recipe->getActiveVersionId() === null) {
+                $recipe->update(['status' => Recipe::STATUS_PENDING_APPROVAL]);
+            }
         }
     }
 
@@ -331,7 +442,7 @@ class ScrapeRunner
             default => throw new InvalidArgumentException('CSV values must be scalar.'),
         };
 
-        return \preg_match('/^[=+\\-@]/', $cell) === 1 ? '\'' . $cell : $cell;
+        return \preg_match('/^(?:[=+\\-@\\t\\r\\n]|\\s+[=+\\-@])/u', $cell) === 1 ? '\'' . $cell : $cell;
     }
 
     /**

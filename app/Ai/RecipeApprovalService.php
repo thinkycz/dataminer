@@ -68,6 +68,8 @@ class RecipeApprovalService
      */
     public function decide(Recipe $recipe, User $user, string $callId, bool $approve): void
     {
+        (new AssistanceGate())->assertAvailable($user);
+
         $pending = $this->pending($recipe);
 
         if ($pending === null || !\hash_equals($pending['id'], $callId)) {

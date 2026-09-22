@@ -2,10 +2,12 @@
 withDefaults(
     defineProps<{
         id?: string;
+        errorId?: string | null;
         message?: string | null | undefined;
     }>(),
     {
         id: undefined,
+        errorId: undefined,
         message: undefined,
     },
 );
@@ -14,8 +16,8 @@ withDefaults(
 <template>
     <p
         v-if="message"
-        :id="$props.id"
-        class="text-xs font-semibold text-error-red"
+        :id="$props.id ?? $props.errorId ?? undefined"
+        class="text-sm font-semibold text-error-red"
         role="alert"
     >
         {{ message }}

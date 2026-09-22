@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Thinkycz\LaravelCore\Models\BaseModel;
+use Thinkycz\LaravelCore\Support\Typer;
 
 class Recipe extends BaseModel
 {
@@ -57,6 +58,30 @@ class Recipe extends BaseModel
                 ->orWhere('start_url', 'LIKE', "%{$search}%")
                 ->orWhere('instructions', 'LIKE', "%{$search}%");
         });
+    }
+
+    /** Read the mutable setup draft without changing the active version.
+     * @return array<string, mixed>|null
+     */
+    public function getSetupDraft(): array|null
+    {
+        return $this->getAttribute('setup_draft') === null ? null : Typer::assertStringKeyArray($this->assertArray('setup_draft'));
+    }
+
+    /**
+     * Whether the owner opted in to queued email alerts.
+     */
+    public function wantsEmailNotifications(): bool
+    {
+        return $this->assertBool('email_notifications');
+    }
+
+    /**
+     * Last reported execution outcome for notification deduplication.
+     */
+    public function getLastOutcome(): string|null
+    {
+        return $this->assertNullableString('last_outcome');
     }
 
     /**
@@ -154,6 +179,6 @@ class Recipe extends BaseModel
      */
     protected function casts(): array
     {
-        return [];
+        return ['setup_draft' => 'array', 'email_notifications' => 'boolean'];
     }
 }

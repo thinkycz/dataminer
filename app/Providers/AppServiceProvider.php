@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Ai\DisabledRecipeAssistant;
+use App\Ai\RecipeAssistantInterface;
 use App\Listeners\RecipeAiEventListener;
 use App\Models\RecipeVersion;
 use App\Models\ScrapeRow;
@@ -22,7 +24,10 @@ class AppServiceProvider extends ServiceProvider
     /**
      * Register any application services.
      */
-    public function register(): void {}
+    public function register(): void
+    {
+        $this->app->bind(RecipeAssistantInterface::class, DisabledRecipeAssistant::class);
+    }
 
     /**
      * Bootstrap any application services.

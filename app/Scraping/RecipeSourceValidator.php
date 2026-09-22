@@ -27,7 +27,7 @@ class RecipeSourceValidator
             '/\\bprocess\\b/',
             '/\\bchild_process\\b/',
             '/\\b(?:fs|path|os|net|tls|dns|http|https)\\s*\\./',
-            '/\\b(?:eval|Function|WebAssembly)\\s*\\(/',
+            '/(?<![\\w$])(?:eval|Function|WebAssembly)\\s*\\(/',
             '/\\b(?:fetch|XMLHttpRequest|WebSocket)\\s*\\(/',
             '/\\b(?:chromium|firefox|webkit)\\s*\\./',
         ];

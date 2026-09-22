@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form } from '@inertiajs/vue3';
+import WebForm from '@/components/ui/WebForm.vue';
 import { useI18n } from 'vue-i18n';
 import AuthLayout from '@/layouts/AuthLayout.vue';
 import Button from '@/components/ui/Button.vue';
@@ -24,10 +24,9 @@ useBoundLocale();
         :title="t('auth.reset.title')"
         :subtitle="t('auth.reset.subtitle')"
     >
-        <Form
+        <WebForm
             v-slot="{ errors, processing }"
-            action="/reset-password"
-            method="post"
+            endpoint="/reset-password"
             :reset-on-error="['password']"
             class="space-y-5"
         >
@@ -85,6 +84,6 @@ useBoundLocale();
             <Button type="submit" class="w-full" :disabled="processing">{{
                 t('auth.reset.submit')
             }}</Button>
-        </Form>
+        </WebForm>
     </AuthLayout>
 </template>

@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
-import { Bot, Check, Play, RefreshCw, X } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import type { RequestPayload } from '@inertiajs/core';
+import { computed, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import ActionErrors from '@/components/ui/ActionErrors.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Button from '@/components/ui/Button.vue';
+import Input from '@/components/ui/Input.vue';
+import Label from '@/components/ui/Label.vue';
+import PageHeader from '@/components/ui/PageHeader.vue';
+import StatusBadge from '@/components/ui/StatusBadge.vue';
 
 interface Recipe {
     id: number;
@@ -14,318 +19,401 @@ interface Recipe {
     status: string;
     active_version_id: number | null;
 }
-interface PendingApproval {
-    id: string;
-    tool: string;
-    reason: string | null;
-    arguments: Record<string, unknown>;
-}
 interface Version {
     id: number;
     version: number;
+    definition_format: 'legacy_js' | 'definition';
+    definition: Record<string, unknown> | null;
     source: string;
-    checksum: string;
     status: string;
+    sample_run_id: string | null;
     summary: string | null;
-    reason: string;
-    columns: Array<Record<string, unknown>>;
-    test_summary: Record<string, unknown> | null;
-    approved_at: string | null;
 }
 interface Run {
     id: string;
     kind: string;
     status: string;
-    progress: number;
     rows: number;
 }
-
+interface Schedule {
+    id: number;
+    cadence: string;
+    timezone: string;
+    local_time: string;
+    weekday: number | null;
+    cron_expression: string | null;
+    status: string;
+    next_run_at: string | null;
+}
+interface EventEntry {
+    kind: string;
+    created_at: string;
+    run_id: string | null;
+}
 const props = defineProps<{
     recipe: Recipe;
-    pendingApproval: PendingApproval | null;
+    setupDraft: Record<string, unknown> | null;
+    assistanceAvailable: boolean;
+    schedule: Schedule | null;
+    events: EventEntry[];
+    emailNotifications: boolean;
+    pendingApproval: unknown;
     versions: Version[];
     runs: Run[];
 }>();
-const { t } = useI18n();
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-const candidateSource = computed(() =>
-    typeof props.pendingApproval?.arguments.source === 'string'
-        ? props.pendingApproval.arguments.source
-        : '',
+const { t, locale } = useI18n();
+const processing = ref(false);
+const latest = computed(() => props.versions[0] ?? null);
+const testedVersion = computed(
+    () =>
+        props.versions.find(
+            (version) =>
+                version.status === 'tested' &&
+                version.definition_format === 'definition',
+        ) ?? null,
 );
-const candidateColumns = computed(() =>
-    Array.isArray(props.pendingApproval?.arguments.proposed_columns)
-        ? props.pendingApproval.arguments.proposed_columns
-        : [],
-);
-const isBusy = computed(() =>
-    ['generating', 'testing'].includes(props.recipe.status),
-);
-
-function decide(decision: 'approve' | 'reject'): void {
-    if (!props.pendingApproval) return;
-    router.post(
-        `/recipes/${props.recipe.id}/approvals/${props.pendingApproval.id}/decide`,
-        { decision },
-    );
+const form = reactive({
+    cadence:
+        props.schedule?.cadence === 'advanced'
+            ? 'cron'
+            : (props.schedule?.cadence ?? 'daily'),
+    timezone: props.schedule?.timezone ?? 'Europe/Prague',
+    local_time: props.schedule?.local_time ?? '09:00',
+    weekday: props.schedule?.weekday ?? 1,
+    cron_expression: props.schedule?.cron_expression ?? '',
+});
+function post(path: string, data: Record<string, unknown> = {}): void {
+    if (processing.value) return;
+    processing.value = true;
+    router.post(path, data as unknown as RequestPayload, {
+        preserveScroll: true,
+        onFinish: () => {
+            processing.value = false;
+        },
+    });
 }
-
-onMounted(() => {
-    refreshTimer = setInterval(() => {
-        if (isBusy.value || props.recipe.status === 'pending_approval') {
-            router.reload({
-                only: ['recipe', 'pendingApproval', 'versions', 'runs'],
-            });
-        }
-    }, 2500);
-});
-onBeforeUnmount(() => {
-    if (refreshTimer) clearInterval(refreshTimer);
-});
+function saveSchedule(): void {
+    post(`/recipes/${props.recipe.id}/schedule`, {
+        ...form,
+        cadence: form.cadence === 'cron' ? 'advanced' : form.cadence,
+        weekday: form.cadence === 'weekly' ? Number(form.weekday) : null,
+        cron_expression: form.cadence === 'cron' ? form.cron_expression : null,
+    });
+}
+function setNotifications(event: globalThis.Event): void {
+    post(`/recipes/${props.recipe.id}/notifications`, {
+        enabled: (event.target as HTMLInputElement).checked,
+    });
+}
+function approveVersion(): void {
+    if (testedVersion.value)
+        post(
+            `/recipes/${props.recipe.id}/versions/${testedVersion.value.id}/approve`,
+        );
+}
+function formatDate(value: string | null): string {
+    if (!value) return t('common.not_set');
+    return new Intl.DateTimeFormat(locale.value, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+    }).format(new Date(value));
+}
 </script>
 
 <template>
     <AppLayout :title="recipe.name">
-        <Link href="/recipes" class="text-xs font-semibold text-primary"
-            >← {{ t('recipes.back') }}</Link
-        >
-        <header
-            class="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
-        >
-            <div>
-                <div class="flex items-center gap-3">
-                    <h1 class="text-2xl font-bold">{{ recipe.name }}</h1>
-                    <span
-                        class="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"
-                        >{{ recipe.status }}</span
-                    >
+        <div class="mx-auto max-w-5xl">
+            <Link href="/recipes" class="text-link mb-6 inline-block"
+                >← {{ t('recipes.back') }}</Link
+            >
+            <PageHeader :title="recipe.name" :description="recipe.start_url"
+                ><template #context
+                    ><StatusBadge :status="recipe.status" /></template
+            ></PageHeader>
+            <ActionErrors />
+
+            <section class="panel mb-6 p-5 sm:p-7">
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-xl font-semibold">
+                            {{
+                                testedVersion
+                                    ? t('builder.tested')
+                                    : t('builder.title')
+                            }}
+                        </h2>
+                        <p
+                            class="mt-2 max-w-2xl text-sm text-on-surface-variant"
+                        >
+                            {{
+                                testedVersion
+                                    ? t('builder.test_preview_help')
+                                    : t('builder.help')
+                            }}
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <Link
+                            :href="`/recipes/${recipe.id}/setup`"
+                            class="button button-secondary"
+                            >{{ t('builder.setup') }}</Link
+                        ><Button
+                            v-if="testedVersion"
+                            :disabled="processing"
+                            @click="approveVersion"
+                            >{{ t('builder.activate_ready') }}</Button
+                        ><Button
+                            v-else-if="recipe.active_version_id !== null"
+                            :disabled="processing"
+                            @click="post(`/recipes/${recipe.id}/runs/start`)"
+                            >{{ t('recipes.run') }}</Button
+                        ><Link
+                            v-else-if="latest?.sample_run_id"
+                            :href="`/scrape-runs/${latest.sample_run_id}`"
+                            class="button button-primary"
+                            >{{ t('flow.view_sample') }}</Link
+                        >
+                    </div>
                 </div>
-                <a
-                    :href="recipe.start_url"
-                    target="_blank"
-                    rel="noreferrer"
-                    class="mt-2 block break-all text-xs text-on-surface-variant hover:text-primary"
-                    >{{ recipe.start_url }}</a
+                <div
+                    v-if="setupDraft"
+                    class="mt-5 rounded-lg bg-surface-container-low p-4"
                 >
-                <p
-                    class="mt-3 max-w-3xl whitespace-pre-wrap text-sm text-on-surface-variant"
-                >
-                    {{ recipe.instructions }}
-                </p>
-            </div>
-            <div class="flex shrink-0 gap-2">
-                <Button
-                    v-if="recipe.active_version_id"
-                    @click="router.post(`/recipes/${recipe.id}/runs/start`)"
-                    ><Play :size="15" />{{ t('recipes.run') }}</Button
-                ><Button
-                    v-if="versions.length === 0 && !isBusy"
-                    @click="router.post(`/recipes/${recipe.id}/generate`)"
-                    ><Bot :size="15" />{{ t('recipes.generate') }}</Button
-                >
-            </div>
-        </header>
-
-        <p
-            class="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900"
-        >
-            {{ t('recipes.security_notice') }}
-        </p>
-
-        <section
-            v-if="isBusy"
-            class="mt-6 rounded-2xl border border-primary/30 bg-primary/5 p-5"
-        >
-            <div
-                class="flex items-center gap-3 text-sm font-semibold text-primary"
-            >
-                <RefreshCw :size="18" class="animate-spin" />{{
-                    t('recipes.processing')
-                }}
-            </div>
-        </section>
-
-        <section
-            v-if="pendingApproval"
-            class="mt-6 rounded-2xl border-2 border-amber-400/60 bg-amber-50 p-5 text-slate-900"
-        >
-            <div
-                class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
-            >
-                <div>
-                    <p
-                        class="text-xs font-bold uppercase tracking-wide text-amber-700"
-                    >
-                        {{ t('recipes.approval_required') }}
+                    <p class="text-sm font-medium">{{ t('builder.source') }}</p>
+                    <p class="mt-1 break-all text-sm">
+                        {{ String(setupDraft.source_type) }} ·
+                        {{ String(setupDraft.url) }}
                     </p>
-                    <h2 class="mt-1 text-lg font-bold">
-                        {{ pendingApproval.tool }}
+                    <p class="mt-3 text-sm font-medium">
+                        {{ t('builder.fields') }}
+                    </p>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        <span
+                            v-for="field in setupDraft.fields as Array<{
+                                name: string;
+                            }>"
+                            :key="field.name"
+                            class="rounded-full border border-outline-glass bg-white px-3 py-1 text-sm"
+                            >{{ field.name }}</span
+                        >
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel mb-6 space-y-4 p-5 sm:p-7">
+                <div>
+                    <h2 class="text-xl font-semibold">
+                        {{ t('builder.schedule') }}
                     </h2>
-                    <p class="mt-1 text-sm text-slate-600">
-                        {{ pendingApproval.reason ?? t('recipes.test_reason') }}
+                    <p class="mt-1 text-sm text-on-surface-variant">
+                        {{ t('builder.schedule_help') }}
                     </p>
                 </div>
-                <div class="flex gap-2">
-                    <Button
-                        class="bg-red-600 from-red-600 to-red-700"
-                        @click="decide('reject')"
-                        ><X :size="15" />{{ t('recipes.reject') }}</Button
-                    ><Button @click="decide('approve')"
-                        ><Check :size="15" />{{
-                            t('recipes.approve_test')
-                        }}</Button
-                    >
-                </div>
-            </div>
-            <div
-                class="mt-5 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]"
-            >
-                <div>
-                    <h3 class="mb-2 text-xs font-bold uppercase">
-                        {{ t('recipes.source') }}
-                    </h3>
-                    <pre
-                        class="max-h-[32rem] overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-100"
-                    ><code>{{ candidateSource }}</code></pre>
-                </div>
-                <div>
-                    <h3 class="mb-2 text-xs font-bold uppercase">
-                        {{ t('recipes.proposed_columns') }}
-                    </h3>
-                    <pre
-                        class="overflow-auto rounded-xl bg-white p-4 text-xs"
-                        >{{ JSON.stringify(candidateColumns, null, 2) }}</pre>
-                </div>
-            </div>
-        </section>
-
-        <section class="mt-8">
-            <h2 class="text-lg font-bold">{{ t('recipes.versions') }}</h2>
-            <div class="mt-3 space-y-4">
-                <article
-                    v-for="version in versions"
-                    :key="version.id"
-                    class="rounded-2xl border border-outline-glass bg-surface-container p-5 shadow-sm"
+                <div
+                    v-if="!recipe.active_version_id"
+                    class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm"
                 >
-                    <div
-                        class="flex flex-wrap items-center justify-between gap-3"
-                    >
-                        <div>
-                            <h3 class="font-bold">
-                                {{ t('recipes.version') }} {{ version.version }}
-                                <span
-                                    class="ml-2 rounded-full bg-surface-container-low px-2 py-1 text-[10px] text-on-surface-variant"
-                                    >{{ version.status }}</span
-                                >
-                            </h3>
-                            <p class="mt-1 text-xs text-on-surface-variant">
-                                {{ version.reason }} ·
-                                {{ version.checksum.slice(0, 12) }}
-                            </p>
-                        </div>
-                        <div class="flex gap-2">
-                            <Button
-                                v-if="version.status === 'tested'"
-                                class="h-8"
-                                @click="
-                                    router.post(
-                                        `/recipes/${recipe.id}/versions/${version.id}/approve`,
-                                    )
-                                "
-                                >{{ t('recipes.approve_version') }}</Button
-                            ><Button
-                                v-if="
-                                    !['approved', 'rejected'].includes(
-                                        version.status,
-                                    )
-                                "
-                                class="h-8 bg-red-600 from-red-600 to-red-700"
-                                @click="
-                                    router.post(
-                                        `/recipes/${recipe.id}/versions/${version.id}/reject`,
-                                    )
-                                "
-                                >{{ t('recipes.reject') }}</Button
-                            ><Button
-                                v-if="version.status !== 'testing'"
-                                class="h-8"
-                                @click="
-                                    router.post(
-                                        `/recipes/${recipe.id}/versions/${version.id}/repair`,
-                                    )
-                                "
-                                >{{ t('recipes.generate_repair') }}</Button
+                    {{ t('builder.test_preview_help') }}
+                </div>
+                <fieldset
+                    :disabled="!recipe.active_version_id"
+                    class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                >
+                    <div>
+                        <Label for="cadence">{{
+                            t('builder.schedule_cadence')
+                        }}</Label
+                        ><select
+                            id="cadence"
+                            v-model="form.cadence"
+                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                        >
+                            <option
+                                v-for="value in [
+                                    'every_15_minutes',
+                                    'hourly',
+                                    'daily',
+                                    'weekly',
+                                    'cron',
+                                ]"
+                                :key="value"
+                                :value="value"
                             >
+                                {{ t(`builder.cadence_${value}`) }}
+                            </option>
+                        </select>
+                    </div>
+                    <div>
+                        <Label for="timezone">{{
+                            t('builder.schedule_timezone')
+                        }}</Label
+                        ><Input
+                            id="timezone"
+                            v-model="form.timezone"
+                            placeholder="Europe/Prague"
+                        />
+                    </div>
+                    <div
+                        v-if="
+                            ['daily', 'weekly', 'cron'].includes(form.cadence)
+                        "
+                    >
+                        <Label for="local_time">{{
+                            t('builder.schedule_time')
+                        }}</Label
+                        ><Input
+                            id="local_time"
+                            v-model="form.local_time"
+                            type="time"
+                        />
+                    </div>
+                    <div v-if="form.cadence === 'weekly'">
+                        <Label for="weekday">{{
+                            t('builder.schedule_weekday')
+                        }}</Label
+                        ><select
+                            id="weekday"
+                            v-model.number="form.weekday"
+                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                        >
+                            <option
+                                v-for="(day, index) in t(
+                                    'common.weekdays',
+                                ) as unknown as string[]"
+                                :key="index"
+                                :value="index + 1"
+                            >
+                                {{ day }}
+                            </option>
+                        </select>
+                    </div>
+                    <div v-if="form.cadence === 'cron'" class="sm:col-span-2">
+                        <Label for="cron_expression">{{
+                            t('builder.schedule_cron')
+                        }}</Label
+                        ><Input
+                            id="cron_expression"
+                            v-model="form.cron_expression"
+                            placeholder="0 9 * * 1-5"
+                        />
+                    </div>
+                </fieldset>
+                <div class="flex flex-wrap items-center gap-3">
+                    <Button
+                        :disabled="processing || !recipe.active_version_id"
+                        @click="saveSchedule"
+                        >{{ t('builder.save_schedule') }}</Button
+                    ><Button
+                        v-if="schedule?.status === 'active'"
+                        variant="secondary"
+                        :disabled="processing"
+                        @click="post(`/recipes/${recipe.id}/schedule/pause`)"
+                        >{{ t('builder.pause_schedule') }}</Button
+                    ><Button
+                        v-else-if="schedule?.status === 'paused'"
+                        variant="secondary"
+                        :disabled="processing"
+                        @click="post(`/recipes/${recipe.id}/schedule/resume`)"
+                        >{{ t('builder.resume_schedule') }}</Button
+                    ><span
+                        v-if="schedule"
+                        class="text-sm text-on-surface-variant"
+                        >{{ t(`builder.schedule_${schedule.status}`) }} ·
+                        {{ t('builder.schedule_next') }}:
+                        {{ formatDate(schedule.next_run_at) }}</span
+                    >
+                </div>
+            </section>
+
+            <section class="panel mb-6 p-5 sm:p-7">
+                <h2 class="text-lg font-semibold">
+                    {{ t('builder.notifications') }}
+                </h2>
+                <label class="mt-4 flex min-h-11 items-center gap-3 text-sm"
+                    ><input
+                        type="checkbox"
+                        :checked="emailNotifications"
+                        :disabled="processing"
+                        class="h-4 w-4 accent-primary"
+                        @change="setNotifications"
+                    />{{ t('builder.notifications') }}</label
+                >
+            </section>
+
+            <section class="mb-8">
+                <h2 class="mb-4 text-lg font-semibold">
+                    {{ t('recipes.recent_runs') }}
+                </h2>
+                <div class="panel divide-y divide-outline-glass">
+                    <div
+                        v-for="run in runs"
+                        :key="run.id"
+                        class="flex flex-wrap items-center justify-between gap-3 p-4"
+                    >
+                        <Link
+                            :href="`/scrape-runs/${run.id}`"
+                            class="text-link"
+                            >{{ t(`runs.${run.kind}`) }}</Link
+                        >
+                        <div class="flex items-center gap-4 text-sm">
+                            <span class="text-on-surface-variant">{{
+                                t('runs.row_count', { count: run.rows })
+                            }}</span
+                            ><StatusBadge :status="run.status" />
                         </div>
                     </div>
-                    <p
-                        v-if="version.summary"
-                        class="mt-3 text-sm text-on-surface-variant"
-                    >
-                        {{ version.summary }}
+                    <p v-if="!runs.length" class="p-6 text-on-surface-variant">
+                        {{ t('runs.empty') }}
                     </p>
-                    <pre
-                        class="mt-4 max-h-80 overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-100"
-                    ><code>{{ version.source }}</code></pre>
-                    <pre
-                        v-if="version.test_summary"
-                        class="mt-3 overflow-auto rounded-xl bg-surface-container-low p-3 text-xs"
-                        >{{
-                            JSON.stringify(version.test_summary, null, 2)
-                        }}</pre>
-                </article>
-                <p
-                    v-if="versions.length === 0"
-                    class="rounded-xl border border-dashed border-outline-glass p-8 text-center text-sm text-on-surface-variant"
+                </div>
+            </section>
+            <section class="panel p-5 sm:p-7">
+                <h2 class="text-lg font-semibold">{{ t('builder.events') }}</h2>
+                <div
+                    v-if="events.length"
+                    class="mt-4 divide-y divide-outline-glass"
                 >
-                    {{ t('recipes.no_versions') }}
+                    <div
+                        v-for="(event, index) in events"
+                        :key="`${event.created_at}-${index}`"
+                        class="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
+                    >
+                        <Link
+                            v-if="event.run_id"
+                            :href="`/scrape-runs/${event.run_id}`"
+                            class="text-link"
+                            >{{ event.kind }}</Link
+                        ><span v-else>{{ event.kind }}</span
+                        ><time class="text-on-surface-variant">{{
+                            formatDate(event.created_at)
+                        }}</time>
+                    </div>
+                </div>
+                <p v-else class="mt-3 text-sm text-on-surface-variant">
+                    {{ t('builder.no_events') }}
                 </p>
-            </div>
-        </section>
+            </section>
 
-        <section class="mt-8">
-            <h2 class="text-lg font-bold">{{ t('recipes.recent_runs') }}</h2>
-            <div
-                class="mt-3 overflow-hidden rounded-2xl border border-outline-glass bg-surface-container"
+            <details
+                v-if="
+                    assistanceAvailable &&
+                    versions.some(
+                        (version) => version.definition_format === 'legacy_js',
+                    )
+                "
+                class="panel mt-6 p-5"
             >
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-surface-container-low">
-                        <tr>
-                            <th class="p-3">{{ t('runs.kind') }}</th>
-                            <th class="p-3">{{ t('runs.status') }}</th>
-                            <th class="p-3">{{ t('runs.rows') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr
-                            v-for="run in runs"
-                            :key="run.id"
-                            class="border-t border-outline-glass"
-                        >
-                            <td class="p-3">
-                                <Link
-                                    :href="`/scrape-runs/${run.id}`"
-                                    class="font-semibold text-primary"
-                                    >{{ run.kind }}</Link
-                                >
-                            </td>
-                            <td class="p-3">
-                                {{ run.status }} · {{ run.progress }}%
-                            </td>
-                            <td class="p-3">{{ run.rows }}</td>
-                        </tr>
-                        <tr v-if="runs.length === 0">
-                            <td
-                                colspan="3"
-                                class="p-6 text-center text-on-surface-variant"
-                            >
-                                {{ t('runs.empty') }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+                <summary class="font-semibold">
+                    {{ t('flow.advanced') }}
+                </summary>
+                <pre
+                    v-for="version in versions.filter(
+                        (item) => item.definition_format === 'legacy_js',
+                    )"
+                    :key="version.id"
+                    class="mt-4 max-h-80 overflow-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"
+                    >{{ version.source }}</pre>
+            </details>
+        </div>
     </AppLayout>
 </template>

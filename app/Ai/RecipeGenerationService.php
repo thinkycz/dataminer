@@ -8,6 +8,7 @@ use App\Ai\Agents\RecipeGenerationAgent;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\User;
+use Laravel\Ai\Responses\AgentResponse;
 use Throwable;
 
 class RecipeGenerationService
@@ -17,8 +18,11 @@ class RecipeGenerationService
      */
     public function queue(Recipe $recipe, User $user, string $reason, RecipeVersion|null $version = null, string|null $error = null): void
     {
+        (new AssistanceGate())->assertAvailable($user);
+
         $recipe->update(['status' => Recipe::STATUS_GENERATING]);
         $agent = RecipeGenerationAgent::make();
+        $agent->requireCandidate = true;
 
         if ($recipe->getAiConversationId() === null) {
             $agent->forParticipant($user);
@@ -31,6 +35,15 @@ class RecipeGenerationService
             : $this->initialPrompt($recipe);
 
         $queued = $agent->queue($prompt);
+        $queued->then(static function (AgentResponse $response) use ($recipe): void {
+            $recipe->refresh();
+            if ($recipe->getStatus() === Recipe::STATUS_GENERATING) {
+                $recipe->update([
+                    'ai_conversation_id' => $response->conversationId,
+                    'status' => Recipe::STATUS_FAILED,
+                ]);
+            }
+        });
         $queued->catch(static function (Throwable $throwable) use ($recipe): void {
             $recipe->refresh();
             if ($recipe->getStatus() === Recipe::STATUS_GENERATING) {

@@ -4,21 +4,44 @@ declare(strict_types=1);
 
 namespace App\Ai\Agents;
 
+use App\Ai\AssistancePromptMiddleware;
 use App\Ai\Tools\TestRecipeCandidateTool;
-use Illuminate\Contracts\JsonSchema\JsonSchema;
-use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Concerns\RemembersConversations;
 use Laravel\Ai\Contracts\Agent;
-use Laravel\Ai\Contracts\HasStructuredOutput;
+use Laravel\Ai\Contracts\HasMiddleware;
 use Laravel\Ai\Contracts\HasTools;
 use Laravel\Ai\Contracts\RemembersConversations as RemembersConversationsContract;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Promptable;
+use Laravel\Ai\ToolChoice;
 
-class RecipeGenerationAgent implements Agent, HasStructuredOutput, HasTools, RemembersConversationsContract
+class RecipeGenerationAgent implements Agent, HasMiddleware, HasTools, RemembersConversationsContract
 {
     use Promptable;
     use RemembersConversations;
+
+    /**
+     * Require candidate creation only for generation, not approval continuation.
+     */
+    public bool $requireCandidate = false;
+
+    /**
+     * Enforce the provider gate inside queued SDK work.
+     *
+     * @return array<int, class-string>
+     */
+    public function middleware(): array
+    {
+        return [AssistancePromptMiddleware::class];
+    }
+
+    /**
+     * Prevent a summary from replacing the required candidate tool call.
+     */
+    public function toolChoice(): ToolChoice
+    {
+        return new ToolChoice($this->requireCandidate ? ToolChoice::required : ToolChoice::auto);
+    }
 
     /**
      * Get the instructions that the agent should follow.
@@ -34,8 +57,9 @@ class RecipeGenerationAgent implements Agent, HasStructuredOutput, HasTools, Rem
             values are string, number, boolean, or null. Prefer stable selectors and bounded pagination.
 
             After preparing the source, you MUST call TestRecipeCandidateTool exactly once with every required argument. The call
-            is deliberately human-approved. Never claim the recipe was tested before that approval. After the tool returns, give
-            a short structured summary. Do not call any other tool.
+            requests human approval; calling it does not run the browser test. You must call it to present the candidate for
+            approval. Never claim the recipe was tested before that approval. After the tool returns, give a short summary.
+            Do not call any other tool.
             PROMPT;
     }
 
@@ -47,18 +71,5 @@ class RecipeGenerationAgent implements Agent, HasStructuredOutput, HasTools, Rem
     public function tools(): iterable
     {
         yield new TestRecipeCandidateTool();
-    }
-
-    /**
-     * Get the agent's structured output schema definition.
-     *
-     * @return array<string, Type>
-     */
-    public function schema(JsonSchema $schema): array
-    {
-        return [
-            'summary' => $schema->string()->required(),
-            'status' => $schema->string()->enum(['awaiting_approval', 'test_dispatched', 'rejected'])->required(),
-        ];
     }
 }

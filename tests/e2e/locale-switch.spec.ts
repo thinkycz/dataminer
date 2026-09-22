@@ -1,22 +1,16 @@
 import { expect, test } from '@playwright/test';
+import { registerPilot } from './pilot';
 
 test.describe('Locale switcher', () => {
     test.beforeEach(async ({ page }) => {
-        const email = `locale-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
-        await page.goto('/register');
-        await page.getByLabel('Email', { exact: true }).fill(email);
-        await page.getByLabel('Password', { exact: true }).fill('password1');
-        await page.getByLabel('Confirm password').fill('password1');
-        await page.getByLabel('Locale').selectOption('en');
-        await page.getByRole('button', { name: 'Register' }).click();
-        await page.waitForURL(/\/recipes/);
+        await registerPilot(page, 'locale');
     });
 
     test('switching the locale flips the nav and heading strings', async ({
         page,
     }) => {
         await expect(
-            page.getByRole('heading', { name: 'Recipes' }),
+            page.getByRole('heading', { name: 'Data collectors' }),
         ).toBeVisible();
         await expect(
             page.getByRole('button', { name: 'Log out' }),
@@ -65,7 +59,9 @@ test.describe('Locale switcher', () => {
         await switcher.selectOption('cs');
         await page.getByRole('button', { name: 'Save profile' }).click();
 
-        await page.getByRole('link', { name: 'Recepty', exact: true }).click();
+        await page
+            .getByRole('link', { name: 'Sběrače dat', exact: true })
+            .click();
         await page.waitForURL(/\/recipes$/);
         await page
             .getByRole('link', { name: 'Nastavení', exact: true })

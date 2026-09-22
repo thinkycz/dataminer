@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Auth;
 
 use App\Http\Controllers\Web\Concerns\ThrottlesWebRequests;
 use App\Http\Controllers\Web\Concerns\ValidatesWebRequests;
+use App\Http\PilotRegistrationGate;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,6 +46,8 @@ class RegisterController
             'password' => $authValidity->password()->required()->confirmed()->toArray(),
             'locale' => $authValidity->locale()->required()->toArray(),
         ]);
+
+        (new PilotRegistrationGate())->assertAllowed($validated->assertString('email'));
 
         $clearThrottle = $this->hit($this->limit());
 
