@@ -25,4 +25,24 @@ test.describe('Profile management', () => {
                 .filter({ hasText: /Profile updated|Profil byl aktualizován/ }),
         ).toBeVisible();
     });
+
+    test('user can change password and log in with the new password', async ({
+        page,
+    }) => {
+        await page.goto('/settings');
+        const accountEmail = await page.getByLabel('Email').inputValue();
+        await page.getByLabel('Current password').fill('password1');
+        await page.getByLabel('New password').fill('new-password1');
+        await page.getByRole('button', { name: 'Update password' }).click();
+        await page.waitForURL(/\/login$/);
+        await expect(page.getByRole('alert')).toContainText(
+            'Password updated.',
+        );
+        await page.getByLabel('Email').fill(accountEmail);
+        await page.getByLabel('Password').fill('new-password1');
+        await page.getByRole('button', { name: 'Log in' }).click();
+        await expect(
+            page.getByRole('heading', { name: 'Data collectors' }),
+        ).toBeVisible();
+    });
 });

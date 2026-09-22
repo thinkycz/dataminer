@@ -61,9 +61,13 @@ const props = defineProps<{
     versions: Version[];
     runs: Run[];
 }>();
-const { t, locale } = useI18n();
+const { t, locale, tm, rt } = useI18n();
 const processing = ref(false);
 const latest = computed(() => props.versions[0] ?? null);
+const weekdays = computed(() => {
+    const translated = tm('common.weekdays');
+    return Array.isArray(translated) ? translated.map((day) => rt(day)) : [];
+});
 const testedVersion = computed(
     () =>
         props.versions.find(
@@ -277,9 +281,7 @@ function formatDate(value: string | null): string {
                             class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
                         >
                             <option
-                                v-for="(day, index) in t(
-                                    'common.weekdays',
-                                ) as unknown as string[]"
+                                v-for="(day, index) in weekdays"
                                 :key="index"
                                 :value="index + 1"
                             >

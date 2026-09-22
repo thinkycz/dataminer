@@ -129,6 +129,61 @@ test('manual setup explores a sample and saves corrected source fields', async (
     await expect(page.getByLabel('Records path')).toHaveValue('data.items');
 });
 
+test('CSV headers can be chosen as fields without entering paths', async ({
+    page,
+}) => {
+    await registerPilot(page, 'csv-picker');
+    await createCollector(page);
+    await page.getByLabel('Source format').selectOption('csv');
+    await page.route('**/collectors/*/sample', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                sample: '"Product name",price\n"Notebook",12\n',
+            }),
+        });
+    });
+    await page.getByRole('button', { name: 'Load sample' }).click();
+    await page.getByRole('button', { name: 'Product name' }).click();
+    await expect(page.getByLabel('Column name').last()).toHaveValue(
+        'Product_name',
+    );
+    await expect(page.getByLabel('Source path or selector').last()).toHaveValue(
+        'Product name',
+    );
+    await expect(
+        page.getByText('No repeated object list was detected'),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Save draft' }).click();
+    await page.reload();
+    await expect(page.getByLabel('Source path or selector').last()).toHaveValue(
+        'Product name',
+    );
+});
+
+test('saved credentials can be revoked and are removed from setup choices', async ({
+    page,
+}) => {
+    await registerPilot(page, 'credential');
+    await createCollector(page);
+    await page.getByLabel('Secret value').fill('example-token');
+    await page.getByRole('button', { name: 'Save credentials' }).click();
+    await expect(page.getByLabel('Secret value')).toHaveValue('');
+    await expect(
+        page.getByLabel('Saved credentials').locator('option'),
+    ).toHaveCount(2);
+    await page.getByRole('button', { name: 'Revoke' }).click();
+    await expect(
+        page.getByLabel('Saved credentials').locator('option'),
+    ).toHaveCount(1);
+    await page.reload();
+    await expect(
+        page.getByLabel('Saved credentials').locator('option'),
+    ).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+});
+
 test('the builder exposes source-specific mapping controls', async ({
     page,
 }) => {
@@ -294,6 +349,28 @@ test('website content can be selected into records and columns without typing se
     );
 });
 
+test('collectors can be searched and a queued collection can be stopped', async ({
+    page,
+}) => {
+    const email = await registerPilot(page, 'search-stop');
+    const collectorUrl = await createCollector(page);
+    await page.goto('/collectors');
+    await page.getByLabel('Search your collectors').fill('nothing matches');
+    await page.getByLabel('Search your collectors').press('Enter');
+    await expect(page.getByText('No collectors found')).toBeVisible();
+    await page.getByRole('button', { name: 'Clear' }).click();
+    await expect(
+        page.getByRole('link', { name: 'Office supplies' }),
+    ).toBeVisible();
+    await page.goto(`${collectorUrl}/setup`);
+    await saveAndPreview(page, email, collectorUrl);
+    await page.getByRole('button', { name: 'Activate setup' }).click();
+    await page.getByRole('button', { name: 'Collect data' }).click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    await page.getByRole('button', { name: 'Stop collection' }).click();
+    await expect(page.getByText('Collection stopped')).toBeVisible();
+});
+
 test('manual collector preview, activation, schedule, and results are separate steps', async ({
     page,
 }, testInfo) => {
@@ -313,6 +390,28 @@ test('manual collector preview, activation, schedule, and results are separate s
     await page.getByLabel('Local time').fill('09:30');
     await page.getByRole('button', { name: 'Save schedule' }).click();
     await expect(page.getByText(/Active · Next run/)).toBeVisible();
+    await page.getByLabel('Repeat').selectOption('weekly');
+    await expect(page.getByLabel('Day of week').locator('option')).toHaveText([
+        'Mon',
+        'Tue',
+        'Wed',
+        'Thu',
+        'Fri',
+        'Sat',
+        'Sun',
+    ]);
+    await page.getByLabel('Day of week').selectOption('3');
+    await page.getByRole('button', { name: 'Save schedule' }).click();
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect(page.getByText(/Paused · Next run/)).toBeVisible();
+    await page.getByRole('button', { name: 'Resume', exact: true }).click();
+    await expect(page.getByText(/Active · Next run/)).toBeVisible();
+    const notifications = page.getByRole('checkbox', {
+        name: 'Email me about changes, failures, and recovery',
+    });
+    await notifications.check();
+    await page.reload();
+    await expect(notifications).toBeChecked();
     await page.getByRole('button', { name: 'Collect data' }).click();
     await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     fixture(email, 'complete');
@@ -324,6 +423,31 @@ test('manual collector preview, activation, schedule, and results are separate s
     await page.getByRole('link', { name: 'Download CSV', exact: true }).click();
     expect((await downloadPromise).suggestedFilename()).toMatch(
         /^dataset-.*\.csv$/,
+    );
+    const jsonDownload = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download JSON' }).click();
+    expect((await jsonDownload).suggestedFilename()).toMatch(
+        /^dataset-.*\.json$/,
+    );
+    await page.getByLabel('Search visible columns').fill('missing notebook');
+    await page.getByLabel('Search visible columns').press('Enter');
+    await expect(page.getByText('No matching rows')).toBeVisible();
+    await page.getByRole('button', { name: 'Clear' }).click();
+    await expect(
+        page.getByRole('cell', { name: 'Notebook', exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole('columnheader', { name: 'Price' })
+        .getByRole('button')
+        .click();
+    await expect(
+        page.getByRole('columnheader', { name: 'Price' }),
+    ).toHaveAttribute('aria-sort', 'ascending');
+    await page.getByText('Columns and filters').click();
+    await page.getByRole('checkbox', { name: 'Price' }).uncheck();
+    await page.getByRole('button', { name: 'Apply changes' }).click();
+    await expect(page.getByRole('columnheader', { name: 'Price' })).toHaveCount(
+        0,
     );
     await page.screenshot({
         path: testInfo.outputPath('results-desktop.png'),

@@ -104,6 +104,15 @@ const form = reactive<Definition>(
               },
           },
 );
+if (
+    form.connection_id !== null &&
+    !props.connections.some(
+        (connection) =>
+            connection.id === form.connection_id &&
+            connection.status === 'ready',
+    )
+)
+    form.connection_id = null;
 if (form.source_type === 'csv')
     form.csv ??= { delimiter: ',', encoding: 'UTF-8' };
 if (form.source_type === 'xml') form.xml ??= { namespaces: {} };
@@ -217,7 +226,38 @@ const sampleRecordsPaths = computed(() => {
     visit(sampleData.value, '', 0);
     return paths;
 });
+function csvHeaders(sample: string, delimiter: string): string[] {
+    if (delimiter.length !== 1) return [];
+    const headers: string[] = [];
+    let value = '';
+    let quoted = false;
+    let ended = false;
+    for (let index = 0; index < Math.min(sample.length, 50_000); index++) {
+        const character = sample[index];
+        if (character === '"') {
+            if (quoted && sample[index + 1] === '"') {
+                value += '"';
+                index++;
+            } else quoted = !quoted;
+        } else if (character === delimiter && !quoted) {
+            headers.push(value.trim());
+            value = '';
+        } else if ((character === '\n' || character === '\r') && !quoted) {
+            headers.push(value.trim());
+            ended = true;
+            break;
+        } else value += character;
+    }
+    if (!ended) headers.push(value.trim());
+    return headers
+        .map((header) => header.replace(/^\uFEFF/, ''))
+        .filter(Boolean);
+}
 const sampleFieldPaths = computed(() => {
+    if (form.source_type === 'csv')
+        return typeof sampleData.value === 'string'
+            ? csvHeaders(sampleData.value, String(form.csv?.delimiter ?? ','))
+            : [];
     if (form.source_type === 'xml') {
         const document = parseXmlSample();
         if (!document) return [];
@@ -462,14 +502,26 @@ function pickSamplePath(path: string): void {
 function useSampleField(path: string): void {
     const field = form.fields.find((item) => item.name === selected.value);
     if (field) field.path = path;
-    else
+    else {
+        const base =
+            path
+                .normalize('NFKD')
+                .replace(/\p{M}/gu, '')
+                .replace(/[^A-Za-z0-9_.-]/g, '_')
+                .replace(/^[^A-Za-z]+/, '')
+                .slice(0, 110) || 'column';
+        const names = new Set(form.fields.map((item) => item.name));
+        let name = base;
+        for (let suffix = 2; names.has(name); suffix++)
+            name = `${base}_${suffix}`;
         form.fields.push({
-            name: path.replace(/\./g, '_'),
+            name,
             path,
             type: 'string',
             required: false,
             transforms: [{ op: 'trim' }],
         });
+    }
 }
 async function browserAction(
     action: string,
@@ -702,7 +754,9 @@ function setPickMode(mode: 'records' | 'fields'): void {
                                 {{ t('builder.no_connection') }}
                             </option>
                             <option
-                                v-for="connection in connections"
+                                v-for="connection in connections.filter(
+                                    (item) => item.status === 'ready',
+                                )"
                                 :key="connection.id"
                                 :value="connection.id"
                             >
@@ -819,10 +873,14 @@ function setPickMode(mode: 'records' | 'fields'): void {
                         </p>
                         <pre
                             class="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100"
-                            >{{ JSON.stringify(sampleData, null, 2) }}</pre>
+                            >{{
+                                typeof sampleData === 'string'
+                                    ? sampleData
+                                    : JSON.stringify(sampleData, null, 2)
+                            }}</pre>
                     </div>
                     <div class="space-y-4">
-                        <div>
+                        <div v-if="form.source_type !== 'csv'">
                             <p class="mb-2 text-sm font-medium">
                                 {{ t('builder.choose_records') }}
                             </p>
@@ -1777,6 +1835,7 @@ function setPickMode(mode: 'records' | 'fields'): void {
                         >{{ connection.name }} · {{ connection.origin }} ·
                         {{ connection.status
                         }}<button
+                            v-if="connection.status === 'ready'"
                             class="ml-2 text-link"
                             type="button"
                             @click="
