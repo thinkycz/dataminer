@@ -33,7 +33,8 @@ const props = defineProps<{
 const { t } = useI18n();
 const processing = ref(false);
 const selected = ref('');
-const pickMode = ref<'records' | 'fields'>('records');
+type PickMode = 'records' | 'fields' | 'login' | 'detail' | 'pagination';
+const pickMode = ref<PickMode>('records');
 const sampleData = ref<unknown>(null);
 const sampleError = ref('');
 const definitionError = ref('');
@@ -60,6 +61,57 @@ const browser = reactive({
         height: number;
     }>,
 });
+const pickLabels: Record<
+    PickMode,
+    { title: string; hint: string; action: string }
+> = {
+    records: {
+        title: 'builder.pick_records_step',
+        hint: 'builder.click_record_hint',
+        action: 'builder.use_for_record',
+    },
+    fields: {
+        title: 'builder.pick_columns_step',
+        hint: 'builder.click_field_hint',
+        action: 'builder.add_as_column',
+    },
+    login: {
+        title: 'builder.login_pick_step',
+        hint: 'builder.click_login_hint',
+        action: 'builder.use_for_login',
+    },
+    detail: {
+        title: 'builder.detail_pick_step',
+        hint: 'builder.click_detail_hint',
+        action: 'builder.use_for_detail',
+    },
+    pagination: {
+        title: 'builder.pagination_pick_step',
+        hint: 'builder.click_pagination_hint',
+        action: 'builder.use_for_pagination',
+    },
+};
+const pickTitle = computed(() =>
+    t(
+        pickMode.value === 'fields' && selected.value
+            ? 'builder.field_selected'
+            : pickLabels[pickMode.value].title,
+    ),
+);
+const pickHint = computed(() =>
+    t(
+        browser.candidates.length
+            ? 'builder.choose_element'
+            : pickLabels[pickMode.value].hint,
+    ),
+);
+const pickAction = computed(() =>
+    t(
+        pickMode.value === 'fields' && selected.value
+            ? 'builder.use_for_field'
+            : pickLabels[pickMode.value].action,
+    ),
+);
 const connectionForm = reactive({
     kind: 'bearer',
     token: '',
@@ -648,6 +700,29 @@ function chooseField(candidate: { selector: string }): void {
     selected.value = '';
     browser.candidates = [];
 }
+function chooseLoginInput(candidate: { selector: string }): void {
+    loginForm.selector = candidate.selector;
+    browser.candidates = [];
+}
+function chooseDetailLink(candidate: { selector: string }): void {
+    form.website = {
+        ...(form.website ?? {}),
+        detail_url_selector: candidate.selector,
+    };
+    browser.candidates = [];
+}
+function choosePaginationLink(candidate: { selector: string }): void {
+    form.pagination.next_path = candidate.selector;
+    browser.candidates = [];
+}
+function chooseCandidate(candidate: { selector: string; tag: string }): void {
+    if (pickMode.value === 'records') chooseRecord(candidate);
+    else if (pickMode.value === 'login') chooseLoginInput(candidate);
+    else if (pickMode.value === 'detail') chooseDetailLink(candidate);
+    else if (pickMode.value === 'pagination') choosePaginationLink(candidate);
+    else if (selected.value) chooseField(candidate);
+    else addFieldFromCandidate(candidate);
+}
 function addFieldFromCandidate(candidate: {
     selector: string;
     tag: string;
@@ -685,9 +760,14 @@ function startFieldSelection(name: string): void {
     pickMode.value = 'fields';
     visualSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-function setPickMode(mode: 'records' | 'fields'): void {
+function setPickMode(mode: PickMode): void {
     pickMode.value = mode;
     browser.candidates = [];
+    if (!['records', 'fields'].includes(mode))
+        visualSection.value?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
 }
 </script>
 
@@ -1069,23 +1149,9 @@ function setPickMode(mode: 'records' | 'fields'): void {
                         v-if="!browser.accessChallenge"
                         class="rounded-xl border border-outline-glass bg-surface-container-low p-4"
                     >
-                        <h3 class="font-semibold">
-                            {{
-                                pickMode === 'records'
-                                    ? t('builder.pick_records_step')
-                                    : selected
-                                      ? t('builder.field_selected')
-                                      : t('builder.pick_columns_step')
-                            }}
-                        </h3>
+                        <h3 class="font-semibold">{{ pickTitle }}</h3>
                         <p class="mt-1 text-sm text-on-surface-variant">
-                            {{
-                                browser.candidates.length
-                                    ? t('builder.choose_element')
-                                    : pickMode === 'records'
-                                      ? t('builder.click_record_hint')
-                                      : t('builder.click_field_hint')
-                            }}
+                            {{ pickHint }}
                         </p>
                         <div
                             v-if="browser.candidates.length"
@@ -1109,20 +1175,8 @@ function setPickMode(mode: 'records' | 'fields'): void {
                                 <Button
                                     class="mt-3 w-full"
                                     :disabled="browserBusy"
-                                    @click="
-                                        pickMode === 'records'
-                                            ? chooseRecord(candidate)
-                                            : selected
-                                              ? chooseField(candidate)
-                                              : addFieldFromCandidate(candidate)
-                                    "
-                                    >{{
-                                        pickMode === 'records'
-                                            ? t('builder.use_for_record')
-                                            : selected
-                                              ? t('builder.use_for_field')
-                                              : t('builder.add_as_column')
-                                    }}</Button
+                                    @click="chooseCandidate(candidate)"
+                                    >{{ pickAction }}</Button
                                 >
                                 <details
                                     class="mt-2 text-xs text-on-surface-variant"
@@ -1212,16 +1266,41 @@ function setPickMode(mode: 'records' | 'fields'): void {
                     </p>
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
-                            <Label for="login-selector">{{
-                                t('builder.login_selector')
-                            }}</Label
-                            ><Input
-                                id="login-selector"
-                                v-model="loginForm.selector"
-                                :placeholder="
-                                    t('builder.login_selector_placeholder')
-                                "
-                            />
+                            <p class="text-sm font-medium">
+                                {{ t('builder.login_selector') }}
+                            </p>
+                            <p
+                                class="mt-1 truncate rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant"
+                            >
+                                {{
+                                    loginForm.selector ||
+                                    t('builder.no_element_selected')
+                                }}
+                            </p>
+                            <Button
+                                class="mt-2"
+                                variant="secondary"
+                                :disabled="!browserReady || browserBusy"
+                                @click="setPickMode('login')"
+                                >{{ t('builder.pick_visual') }}</Button
+                            >
+                            <details class="mt-2 text-sm">
+                                <summary
+                                    class="cursor-pointer text-on-surface-variant"
+                                >
+                                    {{ t('builder.advanced_selectors') }}
+                                </summary>
+                                <Label for="login-selector">{{
+                                    t('builder.login_selector')
+                                }}</Label
+                                ><Input
+                                    id="login-selector"
+                                    v-model="loginForm.selector"
+                                    :placeholder="
+                                        t('builder.login_selector_placeholder')
+                                    "
+                                />
+                            </details>
                         </div>
                         <div>
                             <Label for="login-value">{{
@@ -1279,6 +1358,26 @@ function setPickMode(mode: 'records' | 'fields'): void {
                     <p class="my-3 text-sm text-on-surface-variant">
                         {{ t('builder.detail_fields_help') }}
                     </p>
+                    <div
+                        class="mb-4 rounded-lg bg-surface-container-low p-3 text-sm"
+                    >
+                        <p class="font-medium">
+                            {{ t('builder.detail_url_selector') }}
+                        </p>
+                        <p class="mt-1 break-all text-on-surface-variant">
+                            {{
+                                form.website?.detail_url_selector ||
+                                t('builder.no_element_selected')
+                            }}
+                        </p>
+                        <Button
+                            class="mt-2"
+                            variant="secondary"
+                            :disabled="!browserReady || browserBusy"
+                            @click="setPickMode('detail')"
+                            >{{ t('builder.pick_visual') }}</Button
+                        >
+                    </div>
                     <Button variant="secondary" @click="addDetailField">{{
                         t('builder.add_field')
                     }}</Button>
@@ -1742,6 +1841,17 @@ function setPickMode(mode: 'records' | 'fields'): void {
                                     : 'text'
                             "
                         />
+                        <Button
+                            v-if="
+                                form.source_type === 'website' &&
+                                key === 'next_path'
+                            "
+                            class="mt-2"
+                            variant="secondary"
+                            :disabled="!browserReady || browserBusy"
+                            @click="setPickMode('pagination')"
+                            >{{ t('builder.pick_visual') }}</Button
+                        >
                     </div>
                 </div>
             </section>

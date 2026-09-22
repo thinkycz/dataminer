@@ -228,8 +228,43 @@ test('website content can be selected into records and columns without typing se
     await page.route('**/collectors/*/browser', async (route) => {
         const request = route.request().postDataJSON() as {
             action: string;
-            selector?: string;
+            input?: { x?: number; y?: number };
         };
+        const x = request.input?.x ?? 0;
+        const y = request.input?.y ?? 0;
+        const candidates =
+            y > 300
+                ? [
+                      {
+                          selector: x > 500 ? 'a.next' : 'a.product-link',
+                          tag: 'a',
+                          text: x > 500 ? 'Next' : 'Details',
+                          count: 2,
+                      },
+                  ]
+                : x > 500
+                  ? [
+                        {
+                            selector: 'input[name=email]',
+                            tag: 'input',
+                            text: '',
+                            count: 1,
+                        },
+                    ]
+                  : [
+                        {
+                            selector: 'article.product-card',
+                            tag: 'article',
+                            text: 'Notebook $12',
+                            count: 2,
+                        },
+                        {
+                            selector: 'span.price',
+                            tag: 'span',
+                            text: '$12',
+                            count: 2,
+                        },
+                    ];
         const body =
             request.action === 'open'
                 ? {
@@ -241,32 +276,7 @@ test('website content can be selected into records and columns without typing se
                       },
                   }
                 : request.action === 'inspect'
-                  ? {
-                        candidates:
-                            request.selector === 'price'
-                                ? [
-                                      {
-                                          selector: 'span.price',
-                                          tag: 'span',
-                                          text: '$12',
-                                          count: 2,
-                                      },
-                                  ]
-                                : [
-                                      {
-                                          selector: 'article.product-card',
-                                          tag: 'article',
-                                          text: 'Notebook $12',
-                                          count: 2,
-                                      },
-                                      {
-                                          selector: 'span.price',
-                                          tag: 'span',
-                                          text: '$12',
-                                          count: 2,
-                                      },
-                                  ],
-                    }
+                  ? { candidates }
                   : {
                         screenshot,
                         metadata: {
@@ -325,6 +335,36 @@ test('website content can be selected into records and columns without typing se
     await expect(
         page.getByRole('button', { name: 'Run test preview' }),
     ).toBeEnabled();
+    const login = page.locator('details').filter({
+        has: page.getByText('Login to a source site', { exact: true }),
+    });
+    await login.locator('summary').first().click();
+    await login.getByRole('button', { name: 'Pick from screenshot' }).click();
+    await preview.click({ position: { x: 300, y: 80 } });
+    await page.getByRole('button', { name: 'Use as login input' }).click();
+    await expect(login.getByText('input[name=email]')).toBeVisible();
+    await login.getByLabel('Credential value').fill('example-login-value');
+    await login.getByRole('button', { name: 'Type value once' }).click();
+    await expect(login.getByLabel('Credential value')).toHaveValue('');
+    const detail = page.locator('details').filter({
+        has: page.getByText('Details-page fields', { exact: true }),
+    });
+    await detail.locator('summary').first().click();
+    await detail
+        .getByRole('button', { name: 'Pick from screenshot' })
+        .first()
+        .click();
+    await preview.click({ position: { x: 80, y: 200 } });
+    await page.getByRole('button', { name: 'Use as detail link' }).click();
+    await expect(detail.getByText('a.product-link')).toBeVisible();
+    await page.getByLabel('How to continue').selectOption('next_page');
+    await page
+        .getByRole('button', { name: 'Pick from screenshot' })
+        .last()
+        .click();
+    await preview.click({ position: { x: 300, y: 200 } });
+    await page.getByRole('button', { name: 'Use for next page' }).click();
+    await expect(page.getByLabel('Next page path')).toHaveValue('a.next');
     await page
         .getByText('Advanced CSS selectors', { exact: true })
         .first()
@@ -347,6 +387,12 @@ test('website content can be selected into records and columns without typing se
     await expect(page.getByLabel('Repeated record selector')).toHaveValue(
         'article.product-card',
     );
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+        await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+    ).toBe(true);
 });
 
 test('collectors can be searched and a queued collection can be stopped', async ({

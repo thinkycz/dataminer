@@ -185,8 +185,14 @@ export async function inspectPoint(page, x, y) {
                 element !== document.body &&
                 candidates.length < 8
             ) {
-                let selector = element.tagName.toLowerCase();
+                const tag = element.tagName.toLowerCase();
+                let selector = tag;
                 if (element.id) selector = `#${CSS.escape(element.id)}`;
+                else if (
+                    ['input', 'select', 'textarea'].includes(tag) &&
+                    element.getAttribute('name')
+                )
+                    selector += `[name=${CSS.escape(element.getAttribute('name'))}]`;
                 else {
                     const classes = [...element.classList].sort().slice(0, 3);
                     selector += classes
@@ -204,7 +210,7 @@ export async function inspectPoint(page, x, y) {
                 }
                 candidates.push({
                     selector,
-                    tag: element.tagName.toLowerCase(),
+                    tag,
                     text: element.textContent?.trim().slice(0, 160) ?? '',
                     count: document.querySelectorAll(selector).length,
                 });

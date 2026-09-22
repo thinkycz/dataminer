@@ -161,6 +161,23 @@ test('website adapter extracts raw controlled DOM for PHP mapping', async () => 
         });
         assert.deepEqual(expired.diagnostics, ['auth_expired']);
         await page.setContent(
+            '<form><input name="email"><input name="password" type="password"></form>',
+        );
+        const loginPoint = await page
+            .locator('input[name=email]')
+            .evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    x: rect.x + rect.width / 2,
+                    y: rect.y + rect.height / 2,
+                };
+            });
+        assert.ok(
+            (await inspectPoint(page, loginPoint.x, loginPoint.y)).some(
+                (candidate) => candidate.selector === 'input[name=email]',
+            ),
+        );
+        await page.setContent(
             '<title>Just a moment...</title><main>Verify you are human with Cloudflare</main>',
         );
         assert.equal((await snapshot(page)).metadata.accessChallenge, true);
