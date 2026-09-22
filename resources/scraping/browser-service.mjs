@@ -238,21 +238,24 @@ export async function startBrowserService({
         throw new Error(
             'Service must bind to loopback or an explicitly private network',
         );
-    const browser = await browserFactory.launch({
-        headless: true,
-        chromiumSandbox: true,
-        env: Object.fromEntries(
-            ['HOME', 'PATH', 'TMPDIR', 'LANG', 'PLAYWRIGHT_BROWSERS_PATH']
-                .filter((name) => process.env[name])
-                .map((name) => [name, process.env[name]]),
-        ),
-        args: [
-            '--proxy-bypass-list=<-loopback>',
-            '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
-            '--disable-background-networking',
-            '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-        ],
-    });
+    const launchBrowser = () =>
+        browserFactory.launch({
+            headless: true,
+            chromiumSandbox: true,
+            env: Object.fromEntries(
+                ['HOME', 'PATH', 'TMPDIR', 'LANG', 'PLAYWRIGHT_BROWSERS_PATH']
+                    .filter((name) => process.env[name])
+                    .map((name) => [name, process.env[name]]),
+            ),
+            args: [
+                '--proxy-bypass-list=<-loopback>',
+                '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+                '--disable-background-networking',
+                '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+            ],
+        });
+    let browser = await launchBrowser();
+    let launchInProgress = null;
     const sessions = new Map();
     const closeSession = async (id) => {
         const session = sessions.get(id);
@@ -263,6 +266,21 @@ export async function startBrowserService({
         } finally {
             await session.proxy.close();
         }
+    };
+    const ensureBrowser = async () => {
+        if (browser.isConnected()) return browser;
+        if (!launchInProgress) {
+            launchInProgress = (async () => {
+                await Promise.allSettled(
+                    [...sessions.keys()].map(closeSession),
+                );
+                browser = await launchBrowser();
+                return browser;
+            })().finally(() => {
+                launchInProgress = null;
+            });
+        }
+        return launchInProgress;
     };
     const reaper = setInterval(() => {
         for (const [id, session] of sessions) {
@@ -283,12 +301,14 @@ export async function startBrowserService({
             }
             const path = new URL(request.url, 'http://localhost').pathname;
             if (request.method === 'GET' && path === '/health') {
-                return send(response, 200, {
-                    status: 'ok',
+                const ready = browser.isConnected();
+                return send(response, ready ? 200 : 503, {
+                    status: ready ? 'ok' : 'unavailable',
                     sessions: sessions.size,
                 });
             }
             if (request.method === 'POST' && path === '/sessions') {
+                const currentBrowser = await ensureBrowser();
                 if (sessions.size >= MAX_SESSIONS)
                     return send(response, 429, {
                         error: 'Session limit reached',
@@ -314,7 +334,7 @@ export async function startBrowserService({
                     exceeded: false,
                 };
                 try {
-                    context = await browser.newContext({
+                    context = await currentBrowser.newContext({
                         proxy: { server: proxy.url },
                         serviceWorkers: 'block',
                         acceptDownloads: false,
@@ -386,6 +406,10 @@ export async function startBrowserService({
             );
             if (!match) return send(response, 404, { error: 'Not found' });
             const [, id, action] = match;
+            if (!browser.isConnected())
+                return send(response, 503, {
+                    error: 'Browser unavailable. Open the page again.',
+                });
             const session = sessions.get(id);
             if (!session)
                 return send(response, 404, { error: 'Session expired' });

@@ -276,6 +276,7 @@ test('private service requires secret and creates isolated contexts', async () =
             );
             return {
                 close: async () => {},
+                isConnected: () => true,
                 newContext: async (contextOptions) => {
                     assert.equal(contextOptions.serviceWorkers, 'block');
                     contexts++;
@@ -317,6 +318,47 @@ test('private service requires secret and creates isolated contexts', async () =
         }
         assert.notEqual(ids[0], ids[1]);
         assert.equal(contexts, 2);
+    } finally {
+        await service.close();
+    }
+});
+
+test('a stopped browser reports unavailable and the next session restarts it', async () => {
+    const browsers = [];
+    const browserFactory = {
+        launch: async (options) => {
+            const browser = await chromium.launch(options);
+            browsers.push(browser);
+            return browser;
+        },
+    };
+    const secret = 'r'.repeat(40);
+    const headers = { authorization: `Bearer ${secret}` };
+    const service = await startBrowserService({ secret, browserFactory });
+    try {
+        const first = await fetch(`${service.url}/sessions`, {
+            method: 'POST',
+            headers,
+        });
+        assert.equal(first.status, 201);
+        const { sessionId } = await first.json();
+        await browsers[0].close();
+        const stopped = await fetch(`${service.url}/health`, { headers });
+        assert.equal(stopped.status, 503);
+        const reopened = await fetch(`${service.url}/sessions`, {
+            method: 'POST',
+            headers,
+        });
+        assert.equal(reopened.status, 201);
+        assert.equal(browsers.length, 2);
+        assert.notEqual((await reopened.json()).sessionId, sessionId);
+        const expired = await fetch(
+            `${service.url}/sessions/${sessionId}/state`,
+            { headers },
+        );
+        assert.equal(expired.status, 404);
+        const healthy = await fetch(`${service.url}/health`, { headers });
+        assert.deepEqual(await healthy.json(), { status: 'ok', sessions: 1 });
     } finally {
         await service.close();
     }

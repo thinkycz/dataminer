@@ -56,6 +56,7 @@ test: ./vendor/bin/pest ./.env
 
 .PHONY: e2e
 e2e: ./node_modules/.bin/playwright ./.env
+	node --test tests/Unit/browser-service.test.mjs
 	./node_modules/.bin/playwright test
 
 .PHONY: test-coverage
