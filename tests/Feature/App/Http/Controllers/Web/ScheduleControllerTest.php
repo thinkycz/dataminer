@@ -28,7 +28,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     ]), RecipeVersion::class);
     $recipe->update(['active_version_id' => $version->getKey()]);
 
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/schedule', [
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/schedule', [
         'cadence' => 'advanced',
         'timezone' => 'Europe/Prague',
         'local_time' => '09:05',
@@ -39,7 +39,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     \expect($schedule->getRecipeVersionId())->toBe($version->getKey())
         ->and($schedule->getCronExpression())->toBe('5,35 * * * *');
 
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/schedule/pause', [], $this->inertiaHeaders())->assertRedirect();
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/schedule/pause', [], $this->inertiaHeaders())->assertRedirect();
     \expect($schedule->refresh()->getStatus())->toBe(CollectorSchedule::STATUS_PAUSED);
 });
 
@@ -58,12 +58,12 @@ use Thinkycz\LaravelCore\Support\Typer;
     ]), RecipeVersion::class);
     $recipe->update(['active_version_id' => $version->getKey()]);
 
-    $this->be($user, 'users')->from('/recipes/' . $recipe->getKey())->post('/recipes/' . $recipe->getKey() . '/schedule', [
+    $this->be($user, 'users')->from('/collectors/' . $recipe->getKey())->post('/collectors/' . $recipe->getKey() . '/schedule', [
         'cadence' => 'advanced',
         'timezone' => 'Europe/Prague',
         'local_time' => '09:00',
         'cron_expression' => '*/5 * * * *',
-    ], $this->inertiaHeaders())->assertRedirect('/recipes/' . $recipe->getKey())->assertSessionHasErrors('schedule');
+    ], $this->inertiaHeaders())->assertRedirect('/collectors/' . $recipe->getKey())->assertSessionHasErrors('schedule');
 
     $this->assertDatabaseCount('collector_schedules', 0);
 });

@@ -23,6 +23,6 @@ export async function registerPilot(
     await page.getByLabel('Confirm password').fill('password1');
     await page.getByLabel('Language').selectOption('en');
     await page.getByRole('button', { name: 'Register', exact: true }).click();
-    await page.waitForURL(/\/recipes$/);
+    await page.waitForURL(/\/collectors$/);
     return email;
 }

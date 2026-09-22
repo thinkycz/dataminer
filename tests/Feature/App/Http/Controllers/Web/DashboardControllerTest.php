@@ -15,5 +15,5 @@ use Thinkycz\LaravelCore\Support\Typer;
 \test('authenticated dashboard redirects to recipes', function (): void {
     $user = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
 
-    $this->be($user, 'users')->get('/dashboard')->assertRedirect('/recipes');
+    $this->be($user, 'users')->get('/dashboard')->assertRedirect('/collectors');
 });

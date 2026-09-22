@@ -61,7 +61,7 @@ class ScrapeRunController
         }
         $run = (new ScrapeRunService())->start($owned, $version, $user, ScrapeRun::KIND_FULL);
 
-        return Resolver::resolveRedirector()->to('/scrape-runs/' . $run->getId());
+        return Resolver::resolveRedirector()->to('/runs/' . $run->getId());
     }
 
     /**

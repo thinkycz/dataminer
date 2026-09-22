@@ -39,8 +39,8 @@ use Thinkycz\LaravelCore\Support\Typer;
         'approval_state' => ['pending' => ['call-1' => 'Test generated source']],
     ]);
 
-    $this->be($user, 'users')->from('/recipes/' . $recipe->getKey())
-        ->post('/recipes/' . $recipe->getKey() . '/approvals/call-1/decide', ['decision' => 'approve'], $this->inertiaHeaders())
+    $this->be($user, 'users')->from('/collectors/' . $recipe->getKey())
+        ->post('/collectors/' . $recipe->getKey() . '/approvals/call-1/decide', ['decision' => 'approve'], $this->inertiaHeaders())
         ->assertForbidden();
     RecipeGenerationAgent::assertNeverQueued();
     static::assertSame(Recipe::STATUS_PENDING_APPROVAL, $recipe->refresh()->getStatus());
@@ -51,6 +51,6 @@ use Thinkycz\LaravelCore\Support\Typer;
     $other = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
     $recipe = Typer::assertInstance(RecipeFactory::new()->for($owner)->createOne(), Recipe::class);
 
-    $this->be($other, 'users')->post('/recipes/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertNotFound();
-    $this->be($owner, 'users')->post('/recipes/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertForbidden();
+    $this->be($other, 'users')->post('/collectors/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertNotFound();
+    $this->be($owner, 'users')->post('/collectors/' . $recipe->getKey() . '/approvals/missing/decide', ['decision' => 'approve'])->assertForbidden();
 });

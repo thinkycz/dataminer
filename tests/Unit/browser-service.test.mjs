@@ -140,6 +140,7 @@ test('website adapter extracts raw controlled DOM for PHP mapping', async () => 
         });
         const picture = await snapshot(page, '.item');
         assert.equal(picture.metadata.matches.length, 2);
+        assert.equal(picture.metadata.accessChallenge, false);
         assert.ok(picture.screenshot.length > 100);
         const first = picture.metadata.matches[0];
         const selected = await inspectPoint(page, first.x + 5, first.y + 5);
@@ -159,6 +160,10 @@ test('website adapter extracts raw controlled DOM for PHP mapping', async () => 
             pagination: { mode: 'none' },
         });
         assert.deepEqual(expired.diagnostics, ['auth_expired']);
+        await page.setContent(
+            '<title>Just a moment...</title><main>Verify you are human with Cloudflare</main>',
+        );
+        assert.equal((await snapshot(page)).metadata.accessChallenge, true);
     } finally {
         await browser.close();
     }

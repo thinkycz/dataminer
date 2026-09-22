@@ -32,7 +32,7 @@ test.describe('Full user journey', () => {
 
         await expect(page.getByRole('alert').first()).toBeVisible();
         await expect(page).toHaveURL(/\/login$/);
-        await page.goto('/recipes');
+        await page.goto('/collectors');
         await expect(
             page.getByRole('heading', { name: 'Log in' }),
         ).toBeVisible();

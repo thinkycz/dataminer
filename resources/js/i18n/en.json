@@ -30,7 +30,8 @@
         "history": "Conversations",
         "delete_chat": "Delete Conversation",
         "no_chats": "No conversations yet",
-        "main": "Main navigation"
+        "main": "Main navigation",
+        "workspace": "Workspace"
     },
     "recipes": {
         "title": "Data collectors",
@@ -214,7 +215,9 @@
         "continue_setup": "Continue setup",
         "no_matches": "No collectors found",
         "search_help": "Try a different name or clear your search.",
-        "empty_help": "Start with a website or a JSON, CSV, or XML feed. Choose your columns and preview the results before collecting."
+        "empty_help": "Start with a website or a JSON, CSV, or XML feed. Choose your columns and preview the results before collecting.",
+        "collection_count": "{count} collectors",
+        "workspace_help": "Open a collector to continue setup, review results, or adjust its schedule."
     },
     "setup": {
         "website": "Website",
@@ -321,11 +324,11 @@
         "root": "Whole response",
         "select_path": "Use path",
         "visual_title": "Select website content visually",
-        "visual_help": "Open the page, then click the screenshot to inspect elements. The screenshot is a rendered image; the app does not inspect its source code.",
+        "visual_help": "Open the source page. Click a repeated item in the preview, choose it as a record, then click its text or links to add columns.",
         "open_browser": "Open page",
         "refresh_snapshot": "Refresh screenshot",
         "snapshot_alt": "Screenshot of the source page",
-        "point_hint": "Click an element in the screenshot to find matching selectors.",
+        "point_hint": "Click an item in the preview, then choose what it represents below.",
         "record_selector": "Repeated record selector",
         "signed_in_selector": "Signed-in check selector",
         "signed_in_placeholder": "For example: nav .account-menu",
@@ -460,6 +463,18 @@
         "detail_url_selector": "Detail-page link selector",
         "detail_fields": "Details-page fields",
         "detail_fields_help": "For pages with a separate detail view, list fields to capture after opening each record. Use relative selectors from the screenshot.",
-        "invalid_namespaces": "Enter valid namespace JSON with string values."
+        "invalid_namespaces": "Enter valid namespace JSON with string values.",
+        "access_challenge": "The source is showing a verification page instead of its content. This collector cannot select records until the site allows automated access.",
+        "pick_records_step": "1. Pick a repeated item",
+        "pick_columns_step": "2. Add columns from the page",
+        "matched_records": "{count} matching items",
+        "inspect_page": "Inspect an item in the page preview",
+        "advanced_selectors": "Advanced CSS selectors",
+        "match_count": "{count} matches on this page",
+        "add_as_column": "Add as column",
+        "source_element": "Selected page element",
+        "no_element_selected": "Choose an element from the page preview",
+        "preview_empty": "Your source page will appear here",
+        "preview_empty_help": "Open the page, choose the repeated items you need, then add columns by clicking their content."
     }
 }

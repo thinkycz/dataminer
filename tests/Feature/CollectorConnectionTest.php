@@ -31,13 +31,16 @@ use Thinkycz\LaravelCore\Support\Resolver;
 \test('browser relay never exposes its service token or session id to another user', function (): void {
     \config()->set('scraping.browser_service_secret', 'fixture-secret-only-server');
     Http::preventStrayRequests();
-    Http::fake(['127.0.0.1:3210/sessions' => Http::response(['sessionId' => 'private-session'])]);
+    Http::fake([
+        '127.0.0.1:3210/sessions' => Http::response(['sessionId' => 'private-session']),
+        '127.0.0.1:3210/sessions/private-session/snapshot' => Http::response(['screenshot' => 'fixture-image', 'metadata' => ['viewport' => ['width' => 1280, 'height' => 800]]]),
+    ]);
     $owner = UserFactory::new()->createOne();
     $recipe = RecipeFactory::new()->for($owner)->createOne();
-    $this->be($owner, 'users')->postJson('/recipes/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertExactJson(['opened' => true]);
+    $this->be($owner, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertExactJson(['opened' => true, 'screenshot' => 'fixture-image', 'metadata' => ['viewport' => ['width' => 1280, 'height' => 800]]]);
     $other = UserFactory::new()->createOne();
-    $this->be($other, 'users')->postJson('/recipes/' . $recipe->getKey() . '/browser', ['action' => 'snapshot'])->assertNotFound();
-    Http::assertSentCount(1);
+    $this->be($other, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'snapshot'])->assertNotFound();
+    Http::assertSentCount(2);
 });
 
 \test('revoking a connection erases credentials and pauses its schedules', function (): void {
@@ -49,7 +52,7 @@ use Thinkycz\LaravelCore\Support\Resolver;
         'definition' => ['schema_version' => 1, 'source_type' => 'json', 'url' => 'https://example.com', 'connection_id' => $connection->getKey(), 'fields' => [['name' => 'id', 'path' => 'id', 'type' => 'string', 'required' => true]]],
     ]);
     $schedule = CollectorScheduleFactory::new()->createOne(['user_id' => $owner->getKey(), 'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey()]);
-    $this->be($owner, 'users')->post('/recipes/' . $recipe->getKey() . '/connections/' . $connection->getKey() . '/revoke')->assertRedirect();
+    $this->be($owner, 'users')->post('/collectors/' . $recipe->getKey() . '/connections/' . $connection->getKey() . '/revoke')->assertRedirect();
     \expect($connection->refresh()->getCredentials())->toBe([])
         ->and($connection->getStatus())->toBe('revoked')
         ->and($connection->hasVerifiedState())->toBeFalse()
@@ -62,13 +65,14 @@ use Thinkycz\LaravelCore\Support\Resolver;
     Http::preventStrayRequests();
     Http::fake([
         '127.0.0.1:3210/sessions' => Http::response(['sessionId' => 'private-session']),
+        '127.0.0.1:3210/sessions/private-session/snapshot' => Http::response(['screenshot' => 'fixture-image', 'metadata' => []]),
         '127.0.0.1:3210/sessions/private-session/state' => Http::response(['cookies' => [], 'origins' => []]),
     ]);
     $owner = UserFactory::new()->createOne();
     $recipe = RecipeFactory::new()->for($owner)->createOne(['start_url' => 'https://example.com']);
-    $this->be($owner, 'users')->postJson('/recipes/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertOk();
+    $this->be($owner, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertOk();
     $recipe->update(['start_url' => 'https://example.org']);
-    $this->postJson('/recipes/' . $recipe->getKey() . '/browser', ['action' => 'save'])->assertConflict();
+    $this->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'save'])->assertConflict();
     $this->assertDatabaseCount('collector_connections', 0);
 });
 

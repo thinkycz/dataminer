@@ -99,7 +99,7 @@ function apply(
     direction = props.filters.direction,
 ): void {
     router.get(
-        `/scrape-runs/${props.run.id}`,
+        `/runs/${props.run.id}`,
         {
             search: search.value,
             filter: columnFilters,
@@ -115,7 +115,7 @@ function clearFilters(): void {
     for (const key of Object.keys(columnFilters)) delete columnFilters[key];
     visible.value = props.columns.map((column) => column.key);
     router.get(
-        `/scrape-runs/${props.run.id}`,
+        `/runs/${props.run.id}`,
         {},
         { preserveState: true, preserveScroll: true, replace: true },
     );
@@ -132,7 +132,7 @@ function cancel(): void {
     if (processing.value) return;
     processing.value = true;
     router.post(
-        `/scrape-runs/${props.run.id}/cancel`,
+        `/runs/${props.run.id}/cancel`,
         {},
         {
             preserveScroll: true,
@@ -152,7 +152,7 @@ function display(value: unknown): string {
 let events: EventSource | null = null;
 onMounted(() => {
     if (active.value) {
-        events = new EventSource(`/scrape-runs/${props.run.id}/stream`);
+        events = new EventSource(`/runs/${props.run.id}/stream`);
         events.onmessage = () =>
             router.reload({ only: ['run', 'rows', 'columns'] });
     }
@@ -166,7 +166,7 @@ onBeforeUnmount(() => events?.close());
     <AppLayout :title="recipe?.name ?? t('runs.detail_title')">
         <ActionErrors />
         <Link
-            :href="recipe ? `/recipes/${recipe.id}` : '/scrape-runs'"
+            :href="recipe ? `/collectors/${recipe.id}` : '/runs'"
             class="text-link mb-6 inline-block"
             >← {{ recipe ? t('home.open_collector') : t('runs.back') }}</Link
         >
@@ -176,14 +176,14 @@ onBeforeUnmount(() => events?.close());
         >
             <a
                 v-if="run.has_csv"
-                :href="`/scrape-runs/${run.id}/download/csv`"
+                :href="`/runs/${run.id}/download/csv`"
                 download
                 class="button button-primary"
                 ><Download :size="18" />{{ t('runs.download_csv') }}</a
             >
             <a
                 v-if="run.has_json"
-                :href="`/scrape-runs/${run.id}/download/json`"
+                :href="`/runs/${run.id}/download/json`"
                 download
                 class="button button-secondary"
                 >{{ t('runs.download_json') }}</a
@@ -288,7 +288,7 @@ onBeforeUnmount(() => events?.close());
                 {{ t('runs.sample_help') }}
             </p>
             <Link
-                :href="`/recipes/${recipe.id}`"
+                :href="`/collectors/${recipe.id}`"
                 class="text-link mt-3 inline-block"
                 >{{ t('runs.back_to_review') }} →</Link
             >

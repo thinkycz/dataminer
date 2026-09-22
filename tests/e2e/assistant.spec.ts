@@ -19,7 +19,7 @@ test.describe('Scraping recipe workspace', () => {
             .getByRole('button', { name: 'Continue to field mapping' })
             .click();
 
-        await page.waitForURL(/\/recipes\/\d+\/setup$/);
+        await page.waitForURL(/\/collectors\/\d+\/setup$/);
         await expect(
             page.getByRole('heading', { name: 'Build your collector' }),
         ).toBeVisible();

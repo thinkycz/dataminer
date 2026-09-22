@@ -2,6 +2,7 @@
 import { Link, router } from '@inertiajs/vue3';
 import type { FormDataConvertible } from '@inertiajs/core';
 import { computed, reactive, ref, toRaw } from 'vue';
+import { ScanSearch } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -38,9 +39,11 @@ const definitionError = ref('');
 const browserError = ref('');
 const browserBusy = ref(false);
 const browserReady = ref(false);
+const visualSection = ref<HTMLElement | null>(null);
 const browser = reactive({
     sessionId: '',
     screenshot: '',
+    accessChallenge: false,
     viewport: { width: 1, height: 1 },
     candidates: [] as Array<{
         selector: string;
@@ -143,7 +146,16 @@ const canSave = computed(
         (form.source_type !== 'website' ||
             !!(form.website?.record_selector as string | undefined)?.trim()),
 );
-const canPreview = computed(() => canSave.value);
+const canPreview = computed(
+    () =>
+        canSave.value &&
+        (form.source_type !== 'website' ||
+            form.fields.every(
+                (field) =>
+                    field.path.trim() !== '' &&
+                    !(field.name === 'name' && field.path === 'name'),
+            )),
+);
 function parseXmlSample(): Document | null {
     if (
         form.source_type !== 'xml' ||
@@ -315,7 +327,7 @@ function postSetup(): void {
     if (processing.value) return;
     processing.value = true;
     router.post(
-        `/recipes/${props.recipe.id}/setup`,
+        `/collectors/${props.recipe.id}/setup`,
         {
             definition:
                 serializableDefinition() as unknown as FormDataConvertible,
@@ -332,7 +344,7 @@ function openWebsite(): void {
     if (processing.value) return;
     processing.value = true;
     router.post(
-        `/recipes/${props.recipe.id}/setup`,
+        `/collectors/${props.recipe.id}/setup`,
         {
             definition:
                 serializableDefinition() as unknown as FormDataConvertible,
@@ -349,7 +361,9 @@ function openWebsite(): void {
     );
 }
 function serializableDefinition(): Definition {
-    const definition = serializeManualDefinition(toRaw(form));
+    const definition = serializeManualDefinition(
+        JSON.parse(JSON.stringify(form)) as Definition,
+    );
     if (definition.source_type === 'website' && definition.website)
         definition.website.detail_fields = JSON.parse(
             JSON.stringify(detailFields.value),
@@ -360,7 +374,7 @@ function activatePreview(): void {
     if (processing.value) return;
     processing.value = true;
     router.post(
-        `/recipes/${props.recipe.id}/setup`,
+        `/collectors/${props.recipe.id}/setup`,
         {
             definition:
                 serializableDefinition() as unknown as FormDataConvertible,
@@ -369,7 +383,7 @@ function activatePreview(): void {
             preserveScroll: true,
             onSuccess: () => {
                 router.post(
-                    `/recipes/${props.recipe.id}/preview`,
+                    `/collectors/${props.recipe.id}/preview`,
                     {},
                     {
                         onFinish: () => {
@@ -416,7 +430,7 @@ async function jsonPost(
 async function loadSample(): Promise<void> {
     sampleError.value = '';
     try {
-        const body = await jsonPost(`/recipes/${props.recipe.id}/sample`, {
+        const body = await jsonPost(`/collectors/${props.recipe.id}/sample`, {
             url: form.url,
         });
         if (body) {
@@ -451,7 +465,7 @@ async function browserAction(
     browserBusy.value = true;
     browserError.value = '';
     try {
-        const body = await jsonPost(`/recipes/${props.recipe.id}/browser`, {
+        const body = await jsonPost(`/collectors/${props.recipe.id}/browser`, {
             action,
             ...(action === 'open' ? { url: form.url } : {}),
             ...data,
@@ -471,6 +485,8 @@ async function browserAction(
             browser.viewport = body.viewport as typeof browser.viewport;
         if (Array.isArray(metadata.matches))
             browser.matches = metadata.matches as typeof browser.matches;
+        if (typeof metadata.accessChallenge === 'boolean')
+            browser.accessChallenge = metadata.accessChallenge;
         if (Array.isArray(body.candidates))
             browser.candidates = body.candidates as typeof browser.candidates;
         if (body.saved === true) {
@@ -512,7 +528,7 @@ function saveConnection(): void {
     if (browserBusy.value) return;
     browserBusy.value = true;
     router.post(
-        `/recipes/${props.recipe.id}/connections`,
+        `/collectors/${props.recipe.id}/connections`,
         { ...connectionForm, origin: form.url },
         {
             preserveScroll: true,
@@ -557,6 +573,42 @@ function chooseField(candidate: { selector: string }): void {
           )
         : form.fields.find((item) => item.name === selected.value);
     if (field) field.path = candidate.selector;
+    selected.value = '';
+}
+function addFieldFromCandidate(candidate: {
+    selector: string;
+    tag: string;
+}): void {
+    const tokens = candidate.selector.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? [];
+    const suggested = (tokens.at(-1) ?? candidate.tag)
+        .replace(/[^A-Za-z0-9_]/g, '_')
+        .replace(/^[^A-Za-z]+/, '');
+    const base = suggested || 'column';
+    const existing = new Set(form.fields.map((field) => field.name));
+    let name = base;
+    for (let suffix = 2; existing.has(name); suffix++)
+        name = `${base}_${suffix}`;
+    const field = form.fields.find(
+        (item) =>
+            item.path.trim() === '' ||
+            (item.name === 'name' && item.path === 'name'),
+    );
+    if (field) {
+        field.name = name;
+        field.path = candidate.selector;
+    } else {
+        form.fields.push({
+            name,
+            path: candidate.selector,
+            type: candidate.tag === 'a' ? 'url' : 'string',
+            required: false,
+            transforms: [{ op: 'trim' }],
+        });
+    }
+}
+function startFieldSelection(name: string): void {
+    selected.value = name;
+    visualSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 </script>
 
@@ -564,7 +616,7 @@ function chooseField(candidate: { selector: string }): void {
     <AppLayout :title="t('builder.title')">
         <div class="mx-auto max-w-5xl">
             <Link
-                :href="`/recipes/${recipe.id}`"
+                :href="`/collectors/${recipe.id}`"
                 class="text-link mb-6 inline-block"
                 >← {{ t('recipes.back') }}</Link
             >
@@ -805,23 +857,24 @@ function chooseField(candidate: { selector: string }): void {
             </section>
             <section
                 v-if="form.source_type === 'website'"
-                class="panel mb-6 space-y-5 p-5 sm:p-7"
+                ref="visualSection"
+                class="panel mb-6 scroll-mt-6 space-y-5 overflow-hidden p-5 sm:p-7"
             >
                 <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <h2 class="text-xl font-semibold">
                             {{ t('builder.visual_title') }}
                         </h2>
-                        <p class="mt-1 text-sm text-on-surface-variant">
+                        <p
+                            class="mt-1 max-w-2xl text-sm text-on-surface-variant"
+                        >
                             {{ t('builder.visual_help') }}
                         </p>
                     </div>
                     <div class="flex gap-2">
-                        <Button
-                            variant="secondary"
-                            :disabled="browserBusy"
-                            @click="openWebsite"
-                            >{{ t('builder.open_browser') }}</Button
+                        <Button :disabled="browserBusy" @click="openWebsite">{{
+                            t('builder.open_browser')
+                        }}</Button
                         ><Button
                             variant="secondary"
                             :disabled="browserBusy || !browserReady"
@@ -837,31 +890,81 @@ function chooseField(candidate: { selector: string }): void {
                 >
                     {{ browserError }}
                 </p>
+                <p
+                    v-if="browser.accessChallenge"
+                    role="alert"
+                    class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                >
+                    {{ t('builder.access_challenge') }}
+                </p>
+                <div
+                    v-if="!browser.screenshot"
+                    class="flex min-h-56 flex-col items-center justify-center rounded-xl border border-dashed border-outline-glass bg-surface-container-low px-6 py-8 text-center"
+                >
+                    <span
+                        class="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-primary"
+                        ><ScanSearch :size="24" aria-hidden="true"
+                    /></span>
+                    <p class="mt-3 font-semibold">
+                        {{ t('builder.preview_empty') }}
+                    </p>
+                    <p class="mt-1 max-w-md text-sm text-on-surface-variant">
+                        {{ t('builder.preview_empty_help') }}
+                    </p>
+                </div>
+                <div
+                    v-if="browser.screenshot && !browser.accessChallenge"
+                    class="flex flex-wrap gap-2 text-sm"
+                >
+                    <span
+                        class="rounded-full bg-primary/10 px-3 py-1 font-medium text-primary"
+                        >{{ t('builder.pick_records_step') }}</span
+                    >
+                    <span
+                        class="rounded-full bg-surface-container-low px-3 py-1 text-on-surface-variant"
+                        >{{ t('builder.pick_columns_step') }}</span
+                    >
+                    <span
+                        v-if="browser.matches.length"
+                        class="rounded-full bg-success/10 px-3 py-1 font-medium text-success"
+                        >{{
+                            t('builder.matched_records', {
+                                count: browser.matches.length,
+                            })
+                        }}</span
+                    >
+                </div>
                 <div
                     v-if="browser.screenshot"
-                    class="relative mx-auto w-fit overflow-hidden rounded-lg border border-outline-glass bg-slate-100"
+                    class="relative mx-auto w-fit max-w-full overflow-hidden rounded-xl border border-outline-glass bg-slate-100 shadow-sm"
                 >
-                    <img
-                        :src="
-                            browser.screenshot.startsWith('data:')
-                                ? browser.screenshot
-                                : `data:image/jpeg;base64,${browser.screenshot}`
-                        "
-                        :alt="t('builder.snapshot_alt')"
-                        class="max-h-[65vh] max-w-full cursor-crosshair object-contain"
+                    <button
+                        type="button"
+                        class="relative block max-w-full cursor-crosshair text-left"
+                        :aria-label="t('builder.inspect_page')"
                         @click="inspectPoint"
-                    />
-                    <div
-                        v-for="match in browser.matches"
-                        :key="match.index"
-                        class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
-                        :style="{
-                            left: `${(match.x / browser.viewport.width) * 100}%`,
-                            top: `${(match.y / browser.viewport.height) * 100}%`,
-                            width: `${(match.width / browser.viewport.width) * 100}%`,
-                            height: `${(match.height / browser.viewport.height) * 100}%`,
-                        }"
-                    />
+                    >
+                        <img
+                            :src="
+                                browser.screenshot.startsWith('data:')
+                                    ? browser.screenshot
+                                    : `data:image/jpeg;base64,${browser.screenshot}`
+                            "
+                            :alt="t('builder.snapshot_alt')"
+                            class="block max-h-[65vh] max-w-full object-contain"
+                        />
+                        <div
+                            v-for="match in browser.matches"
+                            :key="match.index"
+                            class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
+                            :style="{
+                                left: `${(match.x / browser.viewport.width) * 100}%`,
+                                top: `${(match.y / browser.viewport.height) * 100}%`,
+                                width: `${(match.width / browser.viewport.width) * 100}%`,
+                                height: `${(match.height / browser.viewport.height) * 100}%`,
+                            }"
+                        />
+                    </button>
                 </div>
                 <p
                     v-if="browser.screenshot"
@@ -869,69 +972,85 @@ function chooseField(candidate: { selector: string }): void {
                 >
                     {{ t('builder.point_hint') }}
                 </p>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <Label for="record_selector">{{
-                            t('builder.record_selector')
-                        }}</Label
-                        ><Input
-                            id="record_selector"
-                            v-model="
-                                (form.website as Record<string, string>)
-                                    .record_selector
-                            "
-                            placeholder="article.product"
-                        />
+                <details class="rounded-lg border border-outline-glass p-4">
+                    <summary class="font-medium">
+                        {{ t('builder.advanced_selectors') }}
+                    </summary>
+                    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <Label for="record_selector">{{
+                                t('builder.record_selector')
+                            }}</Label
+                            ><Input
+                                id="record_selector"
+                                v-model="
+                                    (form.website as Record<string, string>)
+                                        .record_selector
+                                "
+                                placeholder="article.product"
+                            />
+                        </div>
+                        <div>
+                            <Label for="detail_url_selector">{{
+                                t('builder.detail_url_selector')
+                            }}</Label
+                            ><Input
+                                id="detail_url_selector"
+                                v-model="
+                                    (form.website as Record<string, string>)
+                                        .detail_url_selector
+                                "
+                                placeholder="a.product-link"
+                            />
+                        </div>
+                        <div>
+                            <Label for="signed_in_selector">{{
+                                t('builder.signed_in_selector')
+                            }}</Label
+                            ><Input
+                                id="signed_in_selector"
+                                v-model="
+                                    (form.website as Record<string, string>)
+                                        .signed_in_selector
+                                "
+                                :placeholder="
+                                    t('builder.signed_in_placeholder')
+                                "
+                            />
+                        </div>
                     </div>
-                    <div>
-                        <Label for="detail_url_selector">{{
-                            t('builder.detail_url_selector')
-                        }}</Label
-                        ><Input
-                            id="detail_url_selector"
-                            v-model="
-                                (form.website as Record<string, string>)
-                                    .detail_url_selector
-                            "
-                            placeholder="a.product-link"
-                        />
-                    </div>
-                    <div>
-                        <Label for="signed_in_selector">{{
-                            t('builder.signed_in_selector')
-                        }}</Label
-                        ><Input
-                            id="signed_in_selector"
-                            v-model="
-                                (form.website as Record<string, string>)
-                                    .signed_in_selector
-                            "
-                            :placeholder="t('builder.signed_in_placeholder')"
-                        />
-                    </div>
-                </div>
+                </details>
                 <div v-if="browser.candidates.length" class="space-y-2">
                     <p class="font-medium">{{ t('builder.candidates') }}</p>
                     <div
                         v-for="candidate in browser.candidates"
                         :key="candidate.selector"
-                        class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline-glass p-3 text-sm"
+                        class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-outline-glass bg-surface-container-low p-3 text-sm"
                     >
-                        <span
-                            ><code>{{ candidate.selector }}</code
-                            ><span
-                                v-if="candidate.text"
-                                class="ml-2 text-on-surface-variant"
-                                >{{ candidate.text }}</span
-                            ></span
-                        ><span class="flex gap-2"
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate font-medium">{{
+                                candidate.text || candidate.tag
+                            }}</span>
+                            <span class="text-xs text-on-surface-variant">{{
+                                t('builder.match_count', {
+                                    count: candidate.count,
+                                })
+                            }}</span>
+                            <code
+                                class="mt-1 block truncate text-xs text-on-surface-variant"
+                                >{{ candidate.selector }}</code
+                            > </span
+                        ><span class="flex flex-wrap gap-2"
                             ><Button
                                 variant="secondary"
                                 @click="chooseRecord(candidate)"
                                 >{{ t('builder.use_for_record') }}</Button
                             ><Button
+                                @click="addFieldFromCandidate(candidate)"
+                                >{{ t('builder.add_as_column') }}</Button
+                            ><Button
+                                v-if="selected"
                                 variant="secondary"
-                                :disabled="!selected"
                                 @click="chooseField(candidate)"
                                 >{{ t('builder.use_for_field') }}</Button
                             ><Button
@@ -1125,27 +1244,50 @@ function chooseField(candidate: { selector: string }): void {
                             v-model="field.name"
                         />
                     </div>
-                    <div>
+                    <div
+                        v-if="form.source_type === 'website'"
+                        class="sm:col-span-2"
+                    >
+                        <p class="text-sm font-medium">
+                            {{ t('builder.source_element') }}
+                        </p>
+                        <p
+                            class="mt-1 truncate rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant"
+                        >
+                            {{
+                                field.name === 'name' && field.path === 'name'
+                                    ? t('builder.no_element_selected')
+                                    : field.path ||
+                                      t('builder.no_element_selected')
+                            }}
+                        </p>
+                        <Button
+                            class="mt-2"
+                            variant="secondary"
+                            @click="startFieldSelection(field.name)"
+                            >{{ t('builder.pick_visual') }}</Button
+                        >
+                        <details class="mt-2 text-sm">
+                            <summary class="text-on-surface-variant">
+                                {{ t('builder.advanced_selectors') }}
+                            </summary>
+                            <Label :for="`field-path-${index}`">{{
+                                t('builder.field_path')
+                            }}</Label>
+                            <Input
+                                :id="`field-path-${index}`"
+                                v-model="field.path"
+                            />
+                        </details>
+                    </div>
+                    <div v-else>
                         <Label :for="`field-path-${index}`">{{
                             t('builder.field_path')
                         }}</Label
                         ><Input
                             :id="`field-path-${index}`"
                             v-model="field.path"
-                        /><Button
-                            v-if="
-                                form.source_type === 'website' &&
-                                browser.candidates.length
-                            "
-                            class="mt-2"
-                            variant="secondary"
-                            @click="selected = field.name"
-                            >{{
-                                selected === field.name
-                                    ? t('builder.field_selected')
-                                    : t('builder.pick_visual')
-                            }}</Button
-                        >
+                        />
                     </div>
                     <div>
                         <Label :for="`field-type-${index}`">{{
@@ -1563,7 +1705,7 @@ function chooseField(candidate: { selector: string }): void {
                             type="button"
                             @click="
                                 router.post(
-                                    `/recipes/${recipe.id}/connections/${connection.id}/revoke`,
+                                    `/collectors/${recipe.id}/connections/${connection.id}/revoke`,
                                     {},
                                     {
                                         preserveScroll: true,

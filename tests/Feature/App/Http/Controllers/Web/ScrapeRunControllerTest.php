@@ -23,9 +23,9 @@ use Thinkycz\LaravelCore\Support\Typer;
     $version = Typer::assertInstance(RecipeVersionFactory::new()->for($recipe)->createOne(['status' => RecipeVersion::STATUS_APPROVED]), RecipeVersion::class);
     $recipe->update(['active_version_id' => $version->getKey(), 'status' => Recipe::STATUS_READY]);
 
-    $response = $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/runs/start');
+    $response = $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/runs/start');
     $run = ScrapeRun::query()->firstOrFail();
-    $response->assertRedirect('/scrape-runs/' . $run->getId());
+    $response->assertRedirect('/runs/' . $run->getId());
     Queue::assertPushed(ExecuteScrapeRunJob::class, 1);
 });
 
@@ -43,7 +43,7 @@ use Thinkycz\LaravelCore\Support\Typer;
     ScrapeRunColumn::query()->create(['run_id' => $run->getId(), 'key' => 'name', 'label' => 'Name', 'type' => 'string', 'position' => 0]);
     ScrapeRow::query()->create(['run_id' => $run->getId(), 'sequence' => 1, 'payload' => ['name' => 'Example']]);
 
-    $this->be($user, 'users')->get('/scrape-runs/' . $run->getId(), $this->inertiaHeaders())
+    $this->be($user, 'users')->get('/runs/' . $run->getId(), $this->inertiaHeaders())
         ->assertOk()->assertJsonPath('component', 'runs/Show')->assertJsonPath('props.rows.data.0.payload.name', 'Example')
         ->assertJsonPath('props.recipe.id', $recipe->getKey())->assertJsonPath('props.recipe.name', $recipe->getName());
 });
@@ -51,8 +51,8 @@ use Thinkycz\LaravelCore\Support\Typer;
 \test('another user cannot view or cancel an owned run', function (): void {
     $run = Typer::assertInstance(ScrapeRunFactory::new()->createOne(), ScrapeRun::class);
     $other = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
-    $this->be($other, 'users')->get('/scrape-runs/' . $run->getId())->assertNotFound();
-    $this->be($other, 'users')->post('/scrape-runs/' . $run->getId() . '/cancel')->assertNotFound();
+    $this->be($other, 'users')->get('/runs/' . $run->getId())->assertNotFound();
+    $this->be($other, 'users')->post('/runs/' . $run->getId() . '/cancel')->assertNotFound();
 });
 
 \test('collecting requires an approved version even after a successful test', function (): void {
@@ -61,6 +61,6 @@ use Thinkycz\LaravelCore\Support\Typer;
     $recipe = RecipeFactory::new()->for($user)->createOne();
     $version = RecipeVersionFactory::new()->for($recipe)->createOne(['status' => RecipeVersion::STATUS_TESTED]);
     $recipe->update(['active_version_id' => $version->getKey()]);
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/runs/start')->assertStatus(422);
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/runs/start')->assertStatus(422);
     Queue::assertNothingPushed();
 });

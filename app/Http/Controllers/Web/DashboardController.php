@@ -14,6 +14,6 @@ class DashboardController
      */
     public function __invoke(): RedirectResponse
     {
-        return Resolver::resolveRedirector()->to('/recipes');
+        return Resolver::resolveRedirector()->to('/collectors');
     }
 }

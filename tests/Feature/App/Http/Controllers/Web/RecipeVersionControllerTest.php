@@ -17,8 +17,8 @@ use Thinkycz\LaravelCore\Support\Typer;
         'status' => RecipeVersion::STATUS_TESTED,
     ]), RecipeVersion::class);
 
-    $this->be($user, 'users')->from('/recipes/' . $recipe->getKey())
-        ->post('/recipes/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve', [], $this->inertiaHeaders())
+    $this->be($user, 'users')->from('/collectors/' . $recipe->getKey())
+        ->post('/collectors/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve', [], $this->inertiaHeaders())
         ->assertRedirect();
 
     static::assertSame(RecipeVersion::STATUS_APPROVED, $version->refresh()->getStatus());
@@ -33,7 +33,7 @@ use Thinkycz\LaravelCore\Support\Typer;
         'status' => RecipeVersion::STATUS_TESTED,
     ]), RecipeVersion::class);
 
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/reject')
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/reject')
         ->assertRedirect();
     static::assertSame(RecipeVersion::STATUS_REJECTED, $version->refresh()->getStatus());
 });
@@ -43,5 +43,5 @@ use Thinkycz\LaravelCore\Support\Typer;
     $other = Typer::assertInstance(UserFactory::new()->createOne(), User::class);
     $recipe = Typer::assertInstance(RecipeFactory::new()->for($owner)->createOne(), Recipe::class);
     $version = Typer::assertInstance(RecipeVersionFactory::new()->for($recipe)->createOne(['status' => RecipeVersion::STATUS_TESTED]), RecipeVersion::class);
-    $this->be($other, 'users')->post('/recipes/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve')->assertNotFound();
+    $this->be($other, 'users')->post('/collectors/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve')->assertNotFound();
 });

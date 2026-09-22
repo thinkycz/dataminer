@@ -30,7 +30,7 @@ async function createCollector(page: Page): Promise<string> {
     await page
         .getByRole('button', { name: 'Continue to field mapping' })
         .click();
-    await page.waitForURL(/\/recipes\/\d+\/setup$/);
+    await page.waitForURL(/\/collectors\/\d+\/setup$/);
     return page.url().replace(/\/setup$/, '');
 }
 
@@ -43,7 +43,7 @@ async function saveAndPreview(
     await page.getByLabel('Records path').fill('data.items');
     await page.getByLabel('Source path or selector').first().fill('name');
     await page.getByRole('button', { name: 'Run test preview' }).click();
-    await page.waitForURL(/\/scrape-runs\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     fixture(email, 'sample');
     await page.goto(collectorUrl);
     await expect(
@@ -85,7 +85,7 @@ for (const [source, label] of [
         await page
             .getByRole('button', { name: 'Continue to field mapping' })
             .click();
-        await page.waitForURL(/\/recipes\/\d+\/setup$/);
+        await page.waitForURL(/\/collectors\/\d+\/setup$/);
         await expect(
             page.getByRole('heading', { name: 'Build your collector' }),
         ).toBeVisible();
@@ -105,7 +105,7 @@ test('manual setup explores a sample and saves corrected source fields', async (
 }) => {
     await registerPilot(page, 'redesign');
     await createCollector(page);
-    await page.route('**/recipes/*/sample', async (route) => {
+    await page.route('**/collectors/*/sample', async (route) => {
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -143,11 +143,145 @@ test('the builder exposes source-specific mapping controls', async ({
     await expect(
         page.getByRole('heading', { name: 'Select website content visually' }),
     ).toBeVisible();
+    await expect(page.getByLabel('Repeated record selector')).toBeHidden();
+    await page
+        .getByText('Advanced CSS selectors', { exact: true })
+        .first()
+        .click();
     await expect(page.getByLabel('Repeated record selector')).toBeVisible();
     await format.selectOption('json');
     await expect(
         page.getByRole('heading', { name: 'Inspect source data' }),
     ).toBeVisible();
+});
+
+test('website content can be selected into records and columns without typing selectors', async ({
+    page,
+}) => {
+    await registerPilot(page, 'redesign');
+    await page
+        .getByRole('link', { name: 'New collector', exact: true })
+        .click();
+    await page.getByLabel('Collector name').fill('Visual catalog');
+    await page.getByLabel('Source URL').fill('https://example.com/catalog');
+    await page
+        .getByRole('button', { name: 'Continue to field mapping' })
+        .click();
+    await page.waitForURL(/\/collectors\/\d+\/setup$/);
+
+    const screenshot = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><rect width="1280" height="800" fill="white"/><text x="60" y="100">Notebook $12</text></svg>').toString('base64')}`;
+    await page.route('**/collectors/*/browser', async (route) => {
+        const request = route.request().postDataJSON() as {
+            action: string;
+            selector?: string;
+        };
+        const body =
+            request.action === 'open'
+                ? {
+                      opened: true,
+                      screenshot,
+                      metadata: {
+                          viewport: { width: 1280, height: 800 },
+                          accessChallenge: false,
+                      },
+                  }
+                : request.action === 'inspect'
+                  ? {
+                        candidates:
+                            request.selector === 'price'
+                                ? [
+                                      {
+                                          selector: 'span.price',
+                                          tag: 'span',
+                                          text: '$12',
+                                          count: 2,
+                                      },
+                                  ]
+                                : [
+                                      {
+                                          selector: 'article.product-card',
+                                          tag: 'article',
+                                          text: 'Notebook $12',
+                                          count: 2,
+                                      },
+                                      {
+                                          selector: 'span.price',
+                                          tag: 'span',
+                                          text: '$12',
+                                          count: 2,
+                                      },
+                                  ],
+                    }
+                  : {
+                        screenshot,
+                        metadata: {
+                            viewport: { width: 1280, height: 800 },
+                            matches: [
+                                {
+                                    index: 0,
+                                    x: 20,
+                                    y: 20,
+                                    width: 200,
+                                    height: 100,
+                                },
+                                {
+                                    index: 1,
+                                    x: 20,
+                                    y: 150,
+                                    width: 200,
+                                    height: 100,
+                                },
+                            ],
+                        },
+                    };
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(body),
+        });
+    });
+
+    await expect(
+        page.getByRole('button', { name: 'Run test preview' }),
+    ).toBeDisabled();
+    await page.getByRole('button', { name: 'Open page' }).click();
+    const preview = page.getByRole('button', {
+        name: 'Inspect an item in the page preview',
+    });
+    await expect(preview).toBeVisible();
+    await preview.click({ position: { x: 80, y: 80 } });
+    await page.getByRole('button', { name: 'Use as record' }).first().click();
+    await expect(page.getByText('2 matching items')).toBeVisible();
+    await preview.click({ position: { x: 80, y: 80 } });
+    await page.getByRole('button', { name: 'Add as column' }).last().click();
+    await expect(
+        page.getByText('span.price', { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+        page.getByRole('button', { name: 'Run test preview' }),
+    ).toBeEnabled();
+    await page
+        .getByText('Advanced CSS selectors', { exact: true })
+        .first()
+        .click();
+    await expect(page.getByLabel('Repeated record selector')).toHaveValue(
+        'article.product-card',
+    );
+    const saved = page.waitForResponse(
+        (response) =>
+            response.request().method() === 'POST' &&
+            response.url().includes('/collectors/'),
+    );
+    await page.getByRole('button', { name: 'Save draft' }).click();
+    await saved;
+    await page.reload();
+    await page
+        .getByText('Advanced CSS selectors', { exact: true })
+        .first()
+        .click();
+    await expect(page.getByLabel('Repeated record selector')).toHaveValue(
+        'article.product-card',
+    );
 });
 
 test('manual collector preview, activation, schedule, and results are separate steps', async ({
@@ -170,7 +304,7 @@ test('manual collector preview, activation, schedule, and results are separate s
     await page.getByRole('button', { name: 'Save schedule' }).click();
     await expect(page.getByText(/Active · Next run/)).toBeVisible();
     await page.getByRole('button', { name: 'Collect data' }).click();
-    await page.waitForURL(/\/scrape-runs\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     fixture(email, 'complete');
     await page.reload();
     await expect(
@@ -214,7 +348,7 @@ test('empty, failed, and stopped collections remain understandable on mobile', a
         ['empty', 'No data was found'],
     ]) {
         const id = fixture(email, state);
-        await page.goto(`/scrape-runs/${id}`);
+        await page.goto(`/runs/${id}`);
         await expect(page.getByText(title, { exact: true })).toBeVisible();
         await expect(
             page.getByRole('link', { name: 'Download CSV', exact: true }),

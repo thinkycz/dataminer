@@ -71,6 +71,10 @@ export async function snapshot(page, selector) {
         return {
             title: document.title,
             url: location.href,
+            accessChallenge:
+                /cloudflare|verify you are human|just a moment|potvrďte, že jste|overte, že ste/i.test(
+                    `${document.title} ${document.body?.innerText.slice(0, 2000) ?? ''}`,
+                ),
             viewport: { width: innerWidth, height: innerHeight },
             matches: elements.map((element, index) => {
                 const rect = element.getBoundingClientRect();

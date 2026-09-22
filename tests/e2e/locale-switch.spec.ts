@@ -62,7 +62,7 @@ test.describe('Locale switcher', () => {
         await page
             .getByRole('link', { name: 'Sběrače dat', exact: true })
             .click();
-        await page.waitForURL(/\/recipes$/);
+        await page.waitForURL(/\/collectors$/);
         await page
             .getByRole('link', { name: 'Nastavení', exact: true })
             .click();

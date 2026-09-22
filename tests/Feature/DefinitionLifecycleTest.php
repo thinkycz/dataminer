@@ -34,8 +34,8 @@ use Illuminate\Support\Facades\Storage;
     \expect($run->refresh()->getStatus())->toBe(ScrapeRun::STATUS_COMPLETED);
     $version = $recipe->versions()->firstOrFail();
     \expect($version->getStatus())->toBe(RecipeVersion::STATUS_TESTED);
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve')->assertRedirect();
-    $this->get('/scrape-runs/' . $run->getId() . '/download/csv')->assertOk();
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve')->assertRedirect();
+    $this->get('/runs/' . $run->getId() . '/download/csv')->assertOk();
     $service->saveDraft($recipe, $user, $definition);
     \expect($recipe->refresh()->getActiveVersionId())->toBe($version->getKey());
     (new ScrapeRunner())->execute($run);
@@ -46,9 +46,9 @@ use Illuminate\Support\Facades\Storage;
 \test('setup and browser actions never cross recipe ownership', function (): void {
     $recipe = RecipeFactory::new()->createOne();
     $other = UserFactory::new()->createOne();
-    $this->be($other, 'users')->get('/recipes/' . $recipe->getKey() . '/setup')->assertNotFound();
-    $this->post('/recipes/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertNotFound();
-    $this->post('/recipes/' . $recipe->getKey() . '/preview')->assertNotFound();
+    $this->be($other, 'users')->get('/collectors/' . $recipe->getKey() . '/setup')->assertNotFound();
+    $this->post('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertNotFound();
+    $this->post('/collectors/' . $recipe->getKey() . '/preview')->assertNotFound();
 });
 
 \test('CSV and XML definitions preview through the same independent lifecycle', function (string $type, string $body, string $records, string $path): void {
@@ -86,7 +86,7 @@ use Illuminate\Support\Facades\Storage;
     \expect(fn() => (new ScrapeRunner())->execute($run))->toThrow(RuntimeException::class);
     \expect($run->refresh()->isComplete())->toBeFalse()->and($run->getStatus())->toBe(ScrapeRun::STATUS_FAILED)->and($run->getDiagnostics())->not->toBeEmpty();
     $version = $recipe->versions()->firstOrFail();
-    $this->be($user, 'users')->post('/recipes/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve', [], $this->inertiaHeaders())->assertSessionHasErrors('version');
+    $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/versions/' . $version->getKey() . '/approve', [], $this->inertiaHeaders())->assertSessionHasErrors('version');
 });
 
 \test('definition snapshots cannot be rewritten after preview', function (): void {
@@ -151,5 +151,5 @@ use Illuminate\Support\Facades\Storage;
 \test('malformed definition arrays return validation errors rather than server errors', function (): void {
     $owner = UserFactory::new()->createOne();
     $recipe = RecipeFactory::new()->for($owner)->createOne();
-    $this->be($owner, 'users')->postJson('/recipes/' . $recipe->getKey() . '/setup', ['definition' => ['invalid']])->assertUnprocessable()->assertJsonValidationErrors('definition');
+    $this->be($owner, 'users')->postJson('/collectors/' . $recipe->getKey() . '/setup', ['definition' => ['invalid']])->assertUnprocessable()->assertJsonValidationErrors('definition');
 });

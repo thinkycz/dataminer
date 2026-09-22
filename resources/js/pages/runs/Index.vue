@@ -40,7 +40,7 @@ const { t, locale } = useI18n();
             >
                 <div class="min-w-0">
                     <Link
-                        :href="`/scrape-runs/${run.id}`"
+                        :href="`/runs/${run.id}`"
                         class="text-lg font-semibold break-words hover:text-primary"
                         >{{ run.recipe_name ?? t('runs.detail_title') }}</Link
                     >
@@ -59,7 +59,7 @@ const { t, locale } = useI18n();
                         t('runs.row_count', { count: run.rows })
                     }}</span
                     ><StatusBadge :status="run.status" /><Link
-                        :href="`/scrape-runs/${run.id}`"
+                        :href="`/runs/${run.id}`"
                         class="button button-secondary"
                         >{{ t('home.view_results') }}</Link
                     >
@@ -70,7 +70,7 @@ const { t, locale } = useI18n();
             v-else
             :title="t('runs.empty')"
             :description="t('runs.empty_help')"
-            ><Link href="/recipes" class="button button-primary">{{
+            ><Link href="/collectors" class="button button-primary">{{
                 t('recipes.back')
             }}</Link></EmptyState
         ><Pagination :links="runs.links" />

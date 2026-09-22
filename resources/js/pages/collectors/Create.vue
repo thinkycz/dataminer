@@ -17,7 +17,7 @@ function submit(form: {
 }): void {
     if (processing.value) return;
     processing.value = true;
-    router.post('/recipes', form, {
+    router.post('/collectors', form, {
         onFinish: () => {
             processing.value = false;
         },
@@ -27,7 +27,7 @@ function submit(form: {
 <template>
     <AppLayout :title="t('recipes.create_title')"
         ><div class="mx-auto max-w-3xl">
-            <Link href="/recipes" class="text-link mb-6 inline-block"
+            <Link href="/collectors" class="text-link mb-6 inline-block"
                 >← {{ t('recipes.back') }}</Link
             ><PageHeader
                 :title="t('recipes.create_title')"

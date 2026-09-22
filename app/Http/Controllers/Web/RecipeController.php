@@ -42,7 +42,7 @@ class RecipeController
     {
         $owned = (new RecipeRepository())->findOwned($recipe, User::mustAuth());
 
-        return Inertia::render('recipes/Setup', [
+        return Inertia::render('collectors/Setup', [
             'recipe' => ['id' => $owned->getKey(), 'name' => $owned->getName(), 'start_url' => $owned->getStartUrl()],
             'definition' => $owned->getSetupDraft(),
             'connections' => CollectorConnection::query()->where('user_id', User::mustAuth()->getKey())->get()->map(static fn(CollectorConnection $connection): array => ['id' => $connection->getKey(), 'name' => $connection->getName(), 'origin' => $connection->getOrigin(), 'kind' => $connection->getKind(), 'status' => $connection->getStatus()])->all(),
@@ -61,7 +61,7 @@ class RecipeController
             Recipe::scopeSearch($query, $search);
         }
 
-        return Inertia::render('recipes/Index', [
+        return Inertia::render('collectors/Index', [
             'recipes' => $query->paginate(20)->withQueryString()->through(static function (Recipe $recipe): array {
                 $activeVersion = $recipe->activeVersion()->getResults();
                 $lastRun = $recipe->runs()->getQuery()->latest()->first();
@@ -84,7 +84,7 @@ class RecipeController
      */
     public function create(): Response
     {
-        return Inertia::render('recipes/Create');
+        return Inertia::render('collectors/Create');
     }
 
     /**
@@ -125,7 +125,7 @@ class RecipeController
 
         Inertia::flash('success', \__('Recipe created.'));
 
-        return Resolver::resolveRedirector()->to('/recipes/' . $recipe->getKey() . '/setup');
+        return Resolver::resolveRedirector()->to('/collectors/' . $recipe->getKey() . '/setup');
     }
 
     /**
@@ -157,7 +157,7 @@ class RecipeController
             'rows' => $run->getRowCount(),
         ])->all();
 
-        return Inertia::render('recipes/Show', [
+        return Inertia::render('collectors/Show', [
             'recipe' => [
                 'id' => $owned->getKey(),
                 'name' => $owned->getName(),
@@ -216,7 +216,7 @@ class RecipeController
             Thrower::default()->message('definition', $error->getMessage())->throw();
         }
 
-        return Resolver::resolveRedirector()->to('/scrape-runs/' . $run->getId());
+        return Resolver::resolveRedirector()->to('/runs/' . $run->getId());
     }
 
     /**
@@ -324,10 +324,11 @@ class RecipeController
                 $payload['storageState'] = $connection->getCredentials();
             }
             $result = $browser->request('POST', '/sessions', $payload);
-            $request->session()->put($key, Typer::assertString($result['sessionId']));
+            $sessionId = Typer::assertString($result['sessionId']);
+            $request->session()->put($key, $sessionId);
             $request->session()->put($key . '_context', ['origin' => (new CollectorConnectionService())->origin($payload['url']), 'connection_id' => $definition?->getConnectionId()]);
 
-            return new JsonResponse(['opened' => true]);
+            return new JsonResponse(['opened' => true, ...$browser->request('POST', '/sessions/' . \rawurlencode($sessionId) . '/snapshot')]);
         }
         $session = $request->session()->get($key);
         \abort_unless(\is_string($session), 409);

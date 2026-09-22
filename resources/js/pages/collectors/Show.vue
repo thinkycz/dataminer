@@ -93,7 +93,7 @@ function post(path: string, data: Record<string, unknown> = {}): void {
     });
 }
 function saveSchedule(): void {
-    post(`/recipes/${props.recipe.id}/schedule`, {
+    post(`/collectors/${props.recipe.id}/schedule`, {
         ...form,
         cadence: form.cadence === 'cron' ? 'advanced' : form.cadence,
         weekday: form.cadence === 'weekly' ? Number(form.weekday) : null,
@@ -101,14 +101,14 @@ function saveSchedule(): void {
     });
 }
 function setNotifications(event: globalThis.Event): void {
-    post(`/recipes/${props.recipe.id}/notifications`, {
+    post(`/collectors/${props.recipe.id}/notifications`, {
         enabled: (event.target as HTMLInputElement).checked,
     });
 }
 function approveVersion(): void {
     if (testedVersion.value)
         post(
-            `/recipes/${props.recipe.id}/versions/${testedVersion.value.id}/approve`,
+            `/collectors/${props.recipe.id}/versions/${testedVersion.value.id}/approve`,
         );
 }
 function formatDate(value: string | null): string {
@@ -123,7 +123,7 @@ function formatDate(value: string | null): string {
 <template>
     <AppLayout :title="recipe.name">
         <div class="mx-auto max-w-5xl">
-            <Link href="/recipes" class="text-link mb-6 inline-block"
+            <Link href="/collectors" class="text-link mb-6 inline-block"
                 >← {{ t('recipes.back') }}</Link
             >
             <PageHeader :title="recipe.name" :description="recipe.start_url"
@@ -154,7 +154,7 @@ function formatDate(value: string | null): string {
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <Link
-                            :href="`/recipes/${recipe.id}/setup`"
+                            :href="`/collectors/${recipe.id}/setup`"
                             class="button button-secondary"
                             >{{ t('builder.setup') }}</Link
                         ><Button
@@ -165,11 +165,11 @@ function formatDate(value: string | null): string {
                         ><Button
                             v-else-if="recipe.active_version_id !== null"
                             :disabled="processing"
-                            @click="post(`/recipes/${recipe.id}/runs/start`)"
+                            @click="post(`/collectors/${recipe.id}/runs/start`)"
                             >{{ t('recipes.run') }}</Button
                         ><Link
                             v-else-if="latest?.sample_run_id"
-                            :href="`/scrape-runs/${latest.sample_run_id}`"
+                            :href="`/runs/${latest.sample_run_id}`"
                             class="button button-primary"
                             >{{ t('flow.view_sample') }}</Link
                         >
@@ -307,13 +307,15 @@ function formatDate(value: string | null): string {
                         v-if="schedule?.status === 'active'"
                         variant="secondary"
                         :disabled="processing"
-                        @click="post(`/recipes/${recipe.id}/schedule/pause`)"
+                        @click="post(`/collectors/${recipe.id}/schedule/pause`)"
                         >{{ t('builder.pause_schedule') }}</Button
                     ><Button
                         v-else-if="schedule?.status === 'paused'"
                         variant="secondary"
                         :disabled="processing"
-                        @click="post(`/recipes/${recipe.id}/schedule/resume`)"
+                        @click="
+                            post(`/collectors/${recipe.id}/schedule/resume`)
+                        "
                         >{{ t('builder.resume_schedule') }}</Button
                     ><span
                         v-if="schedule"
@@ -350,11 +352,9 @@ function formatDate(value: string | null): string {
                         :key="run.id"
                         class="flex flex-wrap items-center justify-between gap-3 p-4"
                     >
-                        <Link
-                            :href="`/scrape-runs/${run.id}`"
-                            class="text-link"
-                            >{{ t(`runs.${run.kind}`) }}</Link
-                        >
+                        <Link :href="`/runs/${run.id}`" class="text-link">{{
+                            t(`runs.${run.kind}`)
+                        }}</Link>
                         <div class="flex items-center gap-4 text-sm">
                             <span class="text-on-surface-variant">{{
                                 t('runs.row_count', { count: run.rows })
@@ -380,7 +380,7 @@ function formatDate(value: string | null): string {
                     >
                         <Link
                             v-if="event.run_id"
-                            :href="`/scrape-runs/${event.run_id}`"
+                            :href="`/runs/${event.run_id}`"
                             class="text-link"
                             >{{ event.kind }}</Link
                         ><span v-else>{{ event.kind }}</span

@@ -94,6 +94,6 @@ class ScheduleController
             Thrower::default()->message('schedule', Typer::assertString(\__('schedule_unavailable')))->throw();
         }
 
-        return Resolver::resolveRedirector()->to('/scrape-runs/' . $run->getId());
+        return Resolver::resolveRedirector()->to('/runs/' . $run->getId());
     }
 }

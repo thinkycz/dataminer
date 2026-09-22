@@ -30,7 +30,8 @@
         "history": "Konverzácie",
         "delete_chat": "Vymazať konverzáciu",
         "no_chats": "Zatiaľ žiadne konverzácie",
-        "main": "Hlavná navigácia"
+        "main": "Hlavná navigácia",
+        "workspace": "Pracovný priestor"
     },
     "recipes": {
         "title": "Zberače dát",
@@ -214,7 +215,9 @@
         "continue_setup": "Pokračovať v nastavení",
         "no_matches": "Žiadny zberač sa nenašiel",
         "search_help": "Skúste iný názov alebo zrušte hľadanie.",
-        "empty_help": "Začnite webom alebo zdrojom JSON, CSV či XML. Vyberte stĺpce a pred zberom skontrolujte náhľad výsledkov."
+        "empty_help": "Začnite webom alebo zdrojom JSON, CSV či XML. Vyberte stĺpce a pred zberom skontrolujte náhľad výsledkov.",
+        "collection_count": "Počet zberačov: {count}",
+        "workspace_help": "Otvorte zberač a pokračujte v nastavení, prezrite výsledky alebo upravte plán."
     },
     "setup": {
         "website": "Web",
@@ -321,11 +324,11 @@
         "root": "Celá odpoveď",
         "select_path": "Použiť cestu",
         "visual_title": "Vizuálny výber obsahu webu",
-        "visual_help": "Otvorte stránku a kliknutím na snímku preskúmajte prvky. Ide o vykreslený obrázok; aplikácia nečíta zdrojový kód stránky.",
+        "visual_help": "Otvorte zdrojovú stránku. Kliknite na opakujúcu sa položku v náhľade, vyberte ju ako záznam a potom kliknutím na text alebo odkaz pridajte stĺpce.",
         "open_browser": "Otvoriť stránku",
         "refresh_snapshot": "Obnoviť snímku",
         "snapshot_alt": "Snímka zdrojovej stránky",
-        "point_hint": "Kliknutím na prvok na snímke nájdete zodpovedajúce selektory.",
+        "point_hint": "Kliknite na položku v náhľade a nižšie vyberte, čo predstavuje.",
         "record_selector": "Selektor opakujúceho sa záznamu",
         "signed_in_selector": "Selektor potvrdenia prihlásenia",
         "signed_in_placeholder": "Napríklad: nav .account-menu",
@@ -460,6 +463,18 @@
         "detail_url_selector": "Selektor odkazu na detail",
         "detail_fields": "Polia detailu",
         "detail_fields_help": "Ak má stránka samostatný detail, pridajte polia načítané po otvorení každého záznamu. Použite relatívne selektory zo snímky.",
-        "invalid_namespaces": "Zadajte platný JSON menných priestorov s textovými hodnotami."
+        "invalid_namespaces": "Zadajte platný JSON menných priestorov s textovými hodnotami.",
+        "access_challenge": "Zdroj namiesto obsahu zobrazuje overovaciu stránku. Zberač nemôže vyberať záznamy, kým web nepovolí automatizovaný prístup.",
+        "pick_records_step": "1. Vybrať opakujúcu sa položku",
+        "pick_columns_step": "2. Pridať stĺpce zo stránky",
+        "matched_records": "{count} zodpovedajúcich položiek",
+        "inspect_page": "Preskúmať položku v náhľade stránky",
+        "advanced_selectors": "Pokročilé CSS selektory",
+        "match_count": "{count} zhôd na stránke",
+        "add_as_column": "Pridať ako stĺpec",
+        "source_element": "Vybraný prvok stránky",
+        "no_element_selected": "Vyberte prvok z náhľadu stránky",
+        "preview_empty": "Tu sa zobrazí zdrojová stránka",
+        "preview_empty_help": "Otvorte stránku, vyberte opakujúce sa položky a kliknutím na ich obsah pridajte stĺpce."
     }
 }

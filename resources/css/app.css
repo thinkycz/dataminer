@@ -7,15 +7,15 @@
 @source '../**/*.vue';
 
 @theme {
-    --color-primary: #2459c4;
-    --color-primary-container: #1948a5;
-    --color-surface-bg: #f8fafc;
+    --color-primary: #176b59;
+    --color-primary-container: #0e5144;
+    --color-surface-bg: #f4f7f4;
     --color-surface-container: #ffffff;
-    --color-surface-container-low: #f3f6f9;
+    --color-surface-container-low: #edf3ef;
     --color-surface-container-lowest: #ffffff;
-    --color-on-surface: #0f172a;
-    --color-on-surface-variant: #475569;
-    --color-outline-glass: #e2e8f0;
+    --color-on-surface: #172925;
+    --color-on-surface-variant: #536760;
+    --color-outline-glass: #d8e4dd;
     --color-error-red: #b91c1c;
     --color-success: #047857;
 
@@ -27,7 +27,7 @@
 @layer base {
     * {
         box-sizing: border-box;
-        border-color: #e4e4e7;
+        border-color: var(--color-outline-glass);
     }
 
     body {
@@ -75,7 +75,7 @@
 
 @layer components {
     .button {
-        @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+        @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
     }
     .button-primary {
         @apply border-primary bg-primary text-white hover:bg-primary-container;
@@ -87,7 +87,7 @@
         @apply border-red-200 bg-red-50 text-red-800 hover:bg-red-100;
     }
     .panel {
-        @apply rounded-xl border border-outline-glass bg-white;
+        @apply rounded-2xl border border-outline-glass bg-white shadow-[0_2px_16px_rgba(20,50,39,0.025)];
     }
     .text-link {
         @apply font-medium text-primary underline-offset-4 hover:underline;
