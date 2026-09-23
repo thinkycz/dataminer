@@ -41,6 +41,8 @@ const definitionError = ref('');
 const browserError = ref('');
 const browserBusy = ref(false);
 const browserReady = ref(false);
+const pageInteraction = ref(false);
+const browserSessionSaved = ref(false);
 const visualSection = ref<HTMLElement | null>(null);
 const browser = reactive({
     sessionId: '',
@@ -718,6 +720,7 @@ async function browserAction(
         }
         if (body.opened === true) browserReady.value = true;
         if (body.opened === true) {
+            browserSessionSaved.value = false;
             browser.candidates = [];
             browser.matches = [];
         }
@@ -739,6 +742,7 @@ async function browserAction(
         if (Array.isArray(body.candidates))
             browser.candidates = body.candidates as typeof browser.candidates;
         if (body.saved === true) {
+            browserSessionSaved.value = true;
             browserReady.value = false;
             router.reload({
                 only: ['definition', 'connections'],
@@ -758,11 +762,18 @@ async function browserAction(
     }
 }
 function inspectPoint(event: MouseEvent): void {
-    if (browserBusy.value || browser.accessChallenge) return;
-    const target = event.currentTarget as HTMLImageElement;
+    if (
+        browserBusy.value ||
+        !browserReady.value ||
+        event.detail === 0 ||
+        (!pageInteraction.value && browser.accessChallenge)
+    )
+        return;
+    const target = event.currentTarget as HTMLButtonElement;
     const bounds = target.getBoundingClientRect();
-    void browserAction('inspect', {
+    void browserAction(pageInteraction.value ? 'act' : 'inspect', {
         input: {
+            ...(pageInteraction.value ? { action: 'click' } : {}),
             x: Math.round(
                 ((event.clientX - bounds.left) * browser.viewport.width) /
                     bounds.width,
@@ -773,6 +784,11 @@ function inspectPoint(event: MouseEvent): void {
             ),
         },
     });
+}
+function setPageInteraction(enabled: boolean): void {
+    pageInteraction.value = enabled;
+    browser.candidates = [];
+    selected.value = '';
 }
 function saveConnection(): void {
     if (browserBusy.value) return;
@@ -909,11 +925,13 @@ function addFieldFromCandidate(candidate: {
     browser.candidates = [];
 }
 function startFieldSelection(name: string): void {
+    pageInteraction.value = false;
     selected.value = name;
     pickMode.value = 'fields';
     visualSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function setPickMode(mode: PickMode): void {
+    pageInteraction.value = false;
     pickMode.value = mode;
     browser.candidates = [];
     if (!['records', 'fields'].includes(mode))
@@ -1236,8 +1254,32 @@ function setPickMode(mode: PickMode): void {
                         {{ t('builder.preview_empty_help') }}
                     </p>
                 </div>
+                <div v-if="browser.screenshot" class="flex flex-wrap gap-2">
+                    <Button
+                        :variant="pageInteraction ? 'primary' : 'secondary'"
+                        :aria-pressed="pageInteraction"
+                        :disabled="browserBusy || !browserReady"
+                        @click="setPageInteraction(true)"
+                        >{{ t('builder.use_page') }}</Button
+                    >
+                    <Button
+                        :variant="!pageInteraction ? 'primary' : 'secondary'"
+                        :aria-pressed="!pageInteraction"
+                        :disabled="
+                            browserBusy ||
+                            !browserReady ||
+                            browser.accessChallenge
+                        "
+                        @click="setPageInteraction(false)"
+                        >{{ t('builder.select_data') }}</Button
+                    >
+                </div>
                 <div
-                    v-if="browser.screenshot && !browser.accessChallenge"
+                    v-if="
+                        browser.screenshot &&
+                        !browser.accessChallenge &&
+                        !pageInteraction
+                    "
                     class="flex flex-wrap items-center gap-2 text-sm"
                 >
                     <Button
@@ -1277,9 +1319,24 @@ function setPickMode(mode: PickMode): void {
                     >
                         <button
                             type="button"
-                            class="relative block max-w-full cursor-crosshair text-left disabled:cursor-not-allowed"
-                            :disabled="browserBusy || browser.accessChallenge"
-                            :aria-label="t('builder.inspect_page')"
+                            class="relative block max-w-full text-left disabled:cursor-not-allowed"
+                            :class="
+                                pageInteraction
+                                    ? 'cursor-pointer'
+                                    : 'cursor-crosshair'
+                            "
+                            :disabled="
+                                browserBusy ||
+                                !browserReady ||
+                                (!pageInteraction && browser.accessChallenge)
+                            "
+                            :aria-label="
+                                t(
+                                    pageInteraction
+                                        ? 'builder.interact_page'
+                                        : 'builder.inspect_page',
+                                )
+                            "
                             @click="inspectPoint"
                         >
                             <img
@@ -1292,7 +1349,9 @@ function setPickMode(mode: PickMode): void {
                                 class="block max-h-[65vh] max-w-full object-contain"
                             />
                             <div
-                                v-for="match in browser.matches"
+                                v-for="match in pageInteraction
+                                    ? []
+                                    : browser.matches"
                                 :key="match.index"
                                 class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
                                 :style="{
@@ -1305,7 +1364,35 @@ function setPickMode(mode: PickMode): void {
                         </button>
                     </div>
                     <div
-                        v-if="!browser.accessChallenge"
+                        v-if="pageInteraction"
+                        class="space-y-3 rounded-xl border border-outline-glass bg-surface-container-low p-4"
+                    >
+                        <h3 class="font-semibold">
+                            {{ t('builder.use_page') }}
+                        </h3>
+                        <p class="text-sm text-on-surface-variant">
+                            {{ t('builder.interact_help') }}
+                        </p>
+                        <Button
+                            variant="secondary"
+                            :disabled="
+                                browserBusy ||
+                                !browserReady ||
+                                browser.accessChallenge
+                            "
+                            @click="browserAction('save')"
+                            >{{ t('builder.save_browser_session') }}</Button
+                        >
+                        <p
+                            v-if="browserSessionSaved"
+                            role="status"
+                            class="text-sm"
+                        >
+                            {{ t('builder.browser_session_saved') }}
+                        </p>
+                    </div>
+                    <div
+                        v-else-if="!browser.accessChallenge"
                         class="rounded-xl border border-outline-glass bg-surface-container-low p-4"
                     >
                         <h3 class="font-semibold">{{ pickTitle }}</h3>

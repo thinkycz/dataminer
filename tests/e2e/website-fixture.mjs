@@ -27,6 +27,23 @@ async function serveSource(route) {
     if (url.origin !== 'https://1.1.1.1' || !url.pathname.startsWith('/e2e/'))
         return route.abort('blockedbyclient');
     const headers = await route.request().allHeaders();
+    if (url.pathname === '/e2e/interaction') {
+        const selected = headers.cookie
+            ?.split('; ')
+            .includes('catalog_preference=on');
+        const frame = `<label><input type="checkbox" ${selected ? 'checked' : ''} style="position:absolute;left:20px;top:20px;width:24px;height:24px" onchange="parent.postMessage(this.checked ? 'on' : 'off', '*')"><span style="position:absolute;left:60px;top:22px;font:18px Arial">Include archived items</span></label>`;
+        return route.fulfill({
+            contentType: 'text/html',
+            body: document(`<h1>Source preferences</h1>
+                <iframe title="Preferences" sandbox="allow-scripts" srcdoc="${frame.replaceAll('&', '&amp;').replaceAll('"', '&quot;')}" style="position:absolute;left:40px;top:100px;width:500px;height:150px;border:0"></iframe>
+                <script>document.title = 'Preference:${selected ? 'on' : 'off'}';
+                window.addEventListener('message', (event) => {
+                    if (event.source !== document.querySelector('iframe').contentWindow || !['on', 'off'].includes(event.data)) return;
+                    document.cookie = 'catalog_preference=' + event.data + '; Path=/; Secure; SameSite=Lax';
+                    document.title = 'Preference:' + event.data;
+                });</script>`),
+        });
+    }
     if (!headers.cookie?.split('; ').includes('catalog_session=demo')) {
         return route.fulfill({
             contentType: 'text/html',

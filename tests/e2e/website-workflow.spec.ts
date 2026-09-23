@@ -17,6 +17,70 @@ async function inspectSource(page: Page, x: number, y: number): Promise<void> {
     });
 }
 
+test('manual page mode clicks a checkbox inside a frame and preserves the chosen session', async ({
+    page,
+}) => {
+    await registerPilot(page, 'manual-page');
+    await page
+        .getByRole('link', { name: 'New collector', exact: true })
+        .click();
+    await page.getByLabel('Collector name').fill('Manual source interaction');
+    await page.getByLabel('Source URL').fill('https://1.1.1.1/e2e/interaction');
+    await page
+        .getByRole('button', { name: 'Continue to field mapping' })
+        .click();
+    await page.waitForURL(/\/collectors\/\d+\/setup$/);
+    await page.getByRole('button', { name: 'Open page', exact: true }).click();
+    await page.getByRole('button', { name: 'Use page', exact: true }).click();
+    const preview = page.getByRole('button', {
+        name: 'Interact with the website preview',
+        exact: true,
+    });
+    const bounds = await preview.boundingBox();
+    if (!bounds) throw new Error('Source screenshot is missing.');
+    const snapshot = page.waitForResponse(
+        (response) =>
+            response.url().endsWith('/browser') &&
+            response.request().postDataJSON().action === 'snapshot',
+    );
+    await preview.click({
+        position: {
+            x: (bounds.width * 72) / 1280,
+            y: (bounds.height * 132) / 800,
+        },
+    });
+    expect((await (await snapshot).json()).metadata.title).toBe(
+        'Preference:on',
+    );
+    await page
+        .getByRole('button', { name: 'Save browser session', exact: true })
+        .click();
+    await expect(
+        page.getByLabel('Saved credentials').locator('option'),
+    ).toHaveCount(2);
+    await expect(
+        page.getByText('Session saved. Open the page again to continue.'),
+    ).toBeVisible();
+    const reopened = page.waitForResponse(
+        (response) =>
+            response.url().endsWith('/browser') &&
+            response.request().postDataJSON().action === 'open',
+    );
+    await page.getByRole('button', { name: 'Open page', exact: true }).click();
+    expect((await (await reopened).json()).metadata.title).toBe(
+        'Preference:on',
+    );
+    await page
+        .getByRole('button', { name: 'Select data', exact: true })
+        .click();
+    await expect(
+        page.getByRole('button', {
+            name: 'Inspect an item in the page preview',
+            exact: true,
+        }),
+    ).toBeEnabled();
+});
+
 test('saved login, visual fields, detail pages and pagination produce downloadable website rows', async ({
     page,
 }) => {

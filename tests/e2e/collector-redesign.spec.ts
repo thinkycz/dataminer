@@ -280,6 +280,67 @@ test('the builder exposes source-specific mapping controls', async ({
     ).toBeVisible();
 });
 
+test('challenge screens offer manual page interaction while keeping field selection separate', async ({
+    page,
+}) => {
+    await registerPilot(page, 'page-interaction');
+    await createCollector(page);
+    await page.getByLabel('Source format').selectOption('website');
+    let challenge = true;
+    const clicks: Array<{ action: string; x: number; y: number }> = [];
+    const screenshot = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><rect width="1280" height="800" fill="white"/></svg>').toString('base64')}`;
+    await page.route('**/collectors/*/browser', async (route) => {
+        const request = route.request().postDataJSON();
+        if (request.action === 'act') clicks.push(request.input);
+        await route.fulfill({
+            json: {
+                ...(request.action === 'open' ? { opened: true } : {}),
+                screenshot,
+                metadata: {
+                    viewport: { width: 1280, height: 800 },
+                    accessChallenge: challenge,
+                    matches: [],
+                },
+            },
+        });
+    });
+    await page.getByRole('button', { name: 'Open page', exact: true }).click();
+    await expect(
+        page.getByRole('button', { name: 'Select data', exact: true }),
+    ).toBeDisabled();
+    await page.getByRole('button', { name: 'Use page', exact: true }).click();
+    const preview = page.getByRole('button', {
+        name: 'Interact with the website preview',
+        exact: true,
+    });
+    await expect(preview).toBeEnabled();
+    await preview.press('Enter');
+    expect(clicks).toHaveLength(0);
+    const bounds = await preview.boundingBox();
+    if (!bounds) throw new Error('Source screenshot is missing.');
+    await preview.click({
+        position: { x: bounds.width / 4, y: bounds.height / 2 },
+    });
+    await expect.poll(() => clicks.length).toBe(1);
+    expect(clicks[0]?.action).toBe('click');
+    expect(clicks[0]?.x).toBeCloseTo(320, -1);
+    expect(clicks[0]?.y).toBeCloseTo(400, -1);
+    challenge = false;
+    await page
+        .getByRole('button', { name: 'Refresh screenshot', exact: true })
+        .click();
+    await page
+        .getByRole('button', { name: 'Select data', exact: true })
+        .click();
+    await expect(
+        page.getByRole('button', {
+            name: 'Inspect an item in the page preview',
+            exact: true,
+        }),
+    ).toBeEnabled();
+    await expect(page.getByLabel('Column name').first()).toHaveValue('name');
+});
+
 test('website content can be selected into records and columns without typing selectors', async ({
     page,
 }, testInfo) => {
