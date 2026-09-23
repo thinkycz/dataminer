@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Jobs\ExecuteScrapeRunJob;
+use App\Models\Recipe;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
@@ -35,8 +38,22 @@ $app->booted(static function () use ($request): void {
         }
     }
 
+    $sources = [
+        'https://1.1.1.1/e2e/catalog.json' => '{"data":{"items":[{"details":{"title":"Notebook"},"price":12},{"details":{"title":"Pencil"},"price":2}]}}',
+        'https://1.1.1.1/e2e/catalog.csv' => "\"Product name\",price\nNotebook,12\nPencil,2\n",
+        'https://1.1.1.1/e2e/catalog.xml' => '<catalog xmlns="urn:catalog"><product code="A"><details><title>Notebook</title></details><price>12</price></product><product code="B"><details><title>Pencil</title></details><price>2</price></product></catalog>',
+    ];
     Config::inject()->assign('queue.default', 'sync');
-    Queue::fake()->except(SendQueuedNotifications::class);
+    $realJobs = [SendQueuedNotifications::class];
+    if ($request->isMethod('POST') && \preg_match('#^collectors/([0-9]+)/(?:sample|preview|runs/start)$#', $request->path(), $matches) === 1) {
+        Http::fake(\array_map(static fn(string $source) => Http::response($source), $sources));
+        Http::preventStrayRequests();
+        $collector = Recipe::query()->find((int) $matches[1]);
+        if ($collector instanceof Recipe && \array_key_exists($collector->getStartUrl(), $sources)) {
+            $realJobs[] = ExecuteScrapeRunJob::class;
+        }
+    }
+    Queue::fake()->except($realJobs);
     Event::listen(MessageSent::class, static function (MessageSent $event) use ($database): void {
         $message = $event->sent->getOriginalMessage();
         if (!$message instanceof Email) {

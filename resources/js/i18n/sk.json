@@ -318,6 +318,8 @@
         "delimiter": "Oddeľovač",
         "encoding": "Kódovanie textu",
         "xml_namespaces": "XML menné priestory (objekt JSON)",
+        "advanced_xml": "Pokročilé menné priestory XML",
+        "xml_namespaces_help": "Menné priestory sa rozpoznajú pri načítaní ukážky. Mapovanie upravte iba vtedy, ak váš zdroj potrebuje iné predpony.",
         "sample_title": "Preskúmať zdrojové dáta",
         "sample_help": "Načítajte obmedzenú ukážku z adresy a prezrite dostupné cesty k záznamom a poliam.",
         "load_sample": "Načítať ukážku",

@@ -318,6 +318,8 @@
         "delimiter": "Delimiter",
         "encoding": "Text encoding",
         "xml_namespaces": "XML namespaces (JSON object)",
+        "advanced_xml": "Advanced XML namespaces",
+        "xml_namespaces_help": "Namespaces are detected when you load a sample. Edit this mapping only if your feed needs different prefixes.",
         "sample_title": "Inspect source data",
         "sample_help": "Load a bounded sample from the URL to explore available record and field paths.",
         "load_sample": "Load sample",

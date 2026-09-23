@@ -247,27 +247,65 @@ function parseXmlSample(): Document | null {
     );
     return document.querySelector('parsererror') ? null : document;
 }
+function discoverXmlNamespaces(document: Document): void {
+    const namespaces = { ...(form.xml?.namespaces as Record<string, string>) };
+    for (const element of document.getElementsByTagName('*')) {
+        for (const node of [element, ...element.attributes]) {
+            const uri = node.namespaceURI;
+            if (
+                !uri ||
+                uri === 'http://www.w3.org/2000/xmlns/' ||
+                Object.values(namespaces).includes(uri)
+            )
+                continue;
+            const base = node.prefix || 'ns';
+            let prefix = base;
+            for (let suffix = 2; namespaces[prefix]; suffix++)
+                prefix = `${base}${suffix}`;
+            namespaces[prefix] = uri;
+        }
+    }
+    form.xml = { ...form.xml, namespaces };
+}
+function xmlNodeName(node: Element | Attr): string {
+    const prefix = Object.entries(form.xml?.namespaces ?? {}).find(
+        ([, uri]) => uri === node.namespaceURI,
+    )?.[0];
+    return prefix ? `${prefix}:${node.localName}` : node.localName;
+}
 const sampleRecordsPaths = computed(() => {
     if (form.source_type === 'xml') {
         const document = parseXmlSample();
         if (!document?.documentElement) return [];
         const paths: string[] = [];
+        const singleRecords: string[] = [];
         const visit = (element: Element, path: string, depth: number): void => {
             if (depth > 10) return;
             const children = [...element.children];
             for (const child of children) {
-                const childPath = `${path}/${child.tagName}`;
+                const childPath = `${path}/${xmlNodeName(child)}`;
                 if (
-                    children.filter((item) => item.tagName === child.tagName)
-                        .length > 1
+                    children.filter(
+                        (item) =>
+                            item.localName === child.localName &&
+                            item.namespaceURI === child.namespaceURI,
+                    ).length > 1
                 )
                     paths.push(childPath);
+                if (child.children.length || child.attributes.length)
+                    singleRecords.push(childPath);
                 visit(child, childPath, depth + 1);
             }
         };
         const root = document.documentElement;
-        visit(root, `/${root.tagName}`, 0);
-        return [...new Set(paths)];
+        visit(root, `/${xmlNodeName(root)}`, 0);
+        return [
+            ...new Set(
+                paths.length
+                    ? paths
+                    : [...singleRecords, `/${xmlNodeName(root)}`],
+            ),
+        ];
     }
     const paths: string[] = [];
     const visit = (value: unknown, path: string, depth: number): void => {
@@ -331,32 +369,72 @@ const sampleFieldPaths = computed(() => {
             const resolver = (prefix: string | null): string | null =>
                 prefix ? (namespaces[prefix] ?? null) : null;
             const records = document.evaluate(
-                form.records_path || `/${document.documentElement.tagName}`,
+                form.records_path ||
+                    `/${xmlNodeName(document.documentElement)}`,
                 document,
                 resolver,
                 XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
                 null,
             );
             const record = records.snapshotItem(0);
-            if (!record) return [];
-            const paths = [...record.childNodes]
-                .filter((node) => node.nodeType === Node.ELEMENT_NODE)
-                .map((node) => `./${(node as Element).tagName}`);
-            for (const attribute of [...(record as Element).attributes])
-                paths.push(`./@${attribute.name}`);
-            return paths;
+            if (!(record instanceof Element)) return [];
+            const paths: string[] = [];
+            const visit = (
+                element: Element,
+                path: string,
+                depth: number,
+            ): void => {
+                if (depth > 10) return;
+                for (const attribute of element.attributes) {
+                    if (
+                        attribute.namespaceURI !==
+                        'http://www.w3.org/2000/xmlns/'
+                    )
+                        paths.push(`${path}/@${xmlNodeName(attribute)}`);
+                }
+                for (const child of element.children) {
+                    const childPath = `${path}/${xmlNodeName(child)}`;
+                    if (!child.children.length) paths.push(childPath);
+                    visit(child, childPath, depth + 1);
+                }
+            };
+            visit(record, '.', 0);
+            return [...new Set(paths)];
         } catch {
             return [];
         }
     }
     if (!sampleData.value || typeof sampleData.value !== 'object') return [];
     let record: unknown = sampleData.value;
-    for (const segment of form.records_path.split('.').filter(Boolean)) {
+    for (const segment of form.records_path
+        .replace(/^\$\.?/, '')
+        .replace(/\[(\d+)\]/g, '.$1')
+        .split('.')
+        .filter(Boolean)) {
         if (record === null || typeof record !== 'object') return [];
         record = (record as Record<string, unknown>)[segment];
     }
-    const row = Array.isArray(record) ? record[0] : record;
-    return row && typeof row === 'object' ? Object.keys(row) : [];
+    const paths: string[] = [];
+    const visit = (value: unknown, path: string, depth: number): void => {
+        if (depth > 10) return;
+        if (value === null || typeof value !== 'object') {
+            if (path) paths.push(path);
+        } else if (Array.isArray(value)) {
+            value
+                .slice(0, 3)
+                .forEach((child, index) =>
+                    visit(child, `${path}[${index}]`, depth + 1),
+                );
+        } else {
+            for (const [key, child] of Object.entries(value)) {
+                if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key))
+                    visit(child, path ? `${path}.${key}` : key, depth + 1);
+            }
+        }
+    };
+    for (const row of Array.isArray(record) ? record.slice(0, 20) : [record])
+        visit(row, '', 0);
+    return [...new Set(paths)];
 });
 const paginationKeys = computed(() => {
     const map: Record<string, string[]> = {
@@ -550,6 +628,8 @@ async function loadSample(): Promise<void> {
         });
         if (body) {
             sampleData.value = body.sample ?? body.data ?? body;
+            const document = parseXmlSample();
+            if (document) discoverXmlNamespaces(document);
         }
     } catch (error) {
         sampleError.value =
@@ -563,19 +643,44 @@ function pickSamplePath(path: string): void {
 }
 function useSampleField(path: string): void {
     const field = form.fields.find((item) => item.name === selected.value);
-    if (field) field.path = path;
-    else {
-        const base =
-            path
-                .normalize('NFKD')
-                .replace(/\p{M}/gu, '')
-                .replace(/[^A-Za-z0-9_.-]/g, '_')
-                .replace(/^[^A-Za-z]+/, '')
-                .slice(0, 110) || 'column';
-        const names = new Set(form.fields.map((item) => item.name));
-        let name = base;
-        for (let suffix = 2; names.has(name); suffix++)
-            name = `${base}_${suffix}`;
+    if (field) {
+        field.path = path;
+        return;
+    }
+    if (form.fields.some((item) => item.path === path)) return;
+    const placeholder = form.fields.find(
+        (item) =>
+            !item.path.trim() ||
+            (item.name === 'name' &&
+                item.path === 'name' &&
+                !sampleFieldPaths.value.some(
+                    (candidate) => candidate.replace(/^\.\//, '') === 'name',
+                )),
+    );
+    const label =
+        form.source_type === 'xml'
+            ? path.split('/').at(-1)?.replace(/^@/, '').split(':').at(-1)
+            : form.source_type === 'json'
+              ? path.split('.').at(-1)
+              : path;
+    const base =
+        (label ?? path)
+            .normalize('NFKD')
+            .replace(/\p{M}/gu, '')
+            .replace(/[^A-Za-z0-9_.-]/g, '_')
+            .replace(/^[^A-Za-z]+/, '')
+            .slice(0, 110) || 'column';
+    const names = new Set(
+        form.fields
+            .filter((item) => item !== placeholder)
+            .map((item) => item.name),
+    );
+    let name = base;
+    for (let suffix = 2; names.has(name); suffix++) name = `${base}_${suffix}`;
+    if (placeholder) {
+        placeholder.name = name;
+        placeholder.path = path;
+    } else {
         form.fields.push({
             name,
             path,
@@ -936,7 +1041,13 @@ function setPickMode(mode: PickMode): void {
                         </select>
                     </div>
                 </div>
-                <div v-if="form.source_type === 'xml'" class="space-y-2">
+                <details v-if="form.source_type === 'xml'" class="space-y-2">
+                    <summary class="cursor-pointer text-sm font-medium">
+                        {{ t('builder.advanced_xml') }}
+                    </summary>
+                    <p class="text-sm text-on-surface-variant">
+                        {{ t('builder.xml_namespaces_help') }}
+                    </p>
                     <Label for="namespaces">{{
                         t('builder.xml_namespaces')
                     }}</Label
@@ -951,7 +1062,7 @@ function setPickMode(mode: PickMode): void {
                             ).value
                         "
                     />
-                </div>
+                </details>
             </section>
             <section
                 v-if="form.source_type !== 'website'"

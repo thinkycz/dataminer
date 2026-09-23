@@ -162,6 +162,74 @@ test('CSV headers can be chosen as fields without entering paths', async ({
     );
 });
 
+for (const source of ['json', 'csv', 'xml']) {
+    test(`${source} sample selection extracts real rows through the saved mapping`, async ({
+        page,
+    }) => {
+        await registerPilot(page, `source-${source}`);
+        await page
+            .getByRole('link', { name: 'New collector', exact: true })
+            .click();
+        await page
+            .getByRole('radio', {
+                name:
+                    source === 'json'
+                        ? 'JSON API'
+                        : source === 'csv'
+                          ? 'CSV file'
+                          : 'XML feed',
+                exact: true,
+            })
+            .check();
+        await page.getByLabel('Collector name').fill(`${source} catalog`);
+        await page
+            .getByLabel('Source URL')
+            .fill(`https://1.1.1.1/e2e/catalog.${source}`);
+        await page
+            .getByRole('button', { name: 'Continue to field mapping' })
+            .click();
+        await page.waitForURL(/\/collectors\/\d+\/setup$/);
+        await page.getByRole('button', { name: 'Load sample' }).click();
+        if (source !== 'csv')
+            await page
+                .getByRole('button', { name: 'Use path', exact: true })
+                .first()
+                .click();
+        const titlePath =
+            source === 'json'
+                ? 'details.title'
+                : source === 'csv'
+                  ? 'Product name'
+                  : './ns:details/ns:title';
+        await page
+            .getByRole('button', { name: titlePath, exact: true })
+            .click();
+        await expect(page.getByLabel('Column name')).toHaveCount(1);
+        await page
+            .getByRole('button', {
+                name: source === 'xml' ? './ns:price' : 'price',
+                exact: true,
+            })
+            .click();
+        await page.getByLabel('Data type').last().selectOption('number');
+        await page.getByRole('button', { name: 'Run test preview' }).click();
+        await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+        await expect(
+            page.getByRole('cell', { name: 'Notebook', exact: true }),
+        ).toBeVisible();
+        await expect(
+            page.getByRole('cell', { name: 'Pencil', exact: true }),
+        ).toBeVisible();
+        await expect(
+            page.getByRole('cell', { name: '12', exact: true }),
+        ).toBeVisible();
+        await expect(page.getByRole('status')).toContainText('Complete');
+        await expect(
+            page.getByRole('link', { name: 'Download CSV', exact: true }),
+        ).toBeVisible();
+    });
+}
+
 test('saved credentials can be revoked and are removed from setup choices', async ({
     page,
 }) => {
@@ -193,6 +261,8 @@ test('the builder exposes source-specific mapping controls', async ({
     await format.selectOption('csv');
     await expect(page.getByLabel('Delimiter')).toBeVisible();
     await format.selectOption('xml');
+    await expect(page.getByLabel('XML namespaces (JSON object)')).toBeHidden();
+    await page.getByText('Advanced XML namespaces', { exact: true }).click();
     await expect(page.getByLabel('XML namespaces (JSON object)')).toBeVisible();
     await format.selectOption('website');
     await expect(
