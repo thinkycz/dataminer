@@ -467,6 +467,10 @@ function addDetailField(): void {
         transforms: [{ op: 'trim' }],
     });
 }
+function removeDetailField(index: number): void {
+    const [field] = detailFields.value.splice(index, 1);
+    if (selected.value === `detail:${field?.name}`) selected.value = '';
+}
 function removeField(index: number): void {
     if (form.fields.length > 1) form.fields.splice(index, 1);
 }
@@ -697,12 +701,21 @@ async function browserAction(
     browserBusy.value = true;
     browserError.value = '';
     try {
-        const body = await jsonPost(`/collectors/${props.recipe.id}/browser`, {
+        let body = await jsonPost(`/collectors/${props.recipe.id}/browser`, {
             action,
             ...(action === 'open' ? { url: form.url } : {}),
             ...data,
         });
         if (!body) return;
+        if (action === 'act') {
+            body = {
+                ...body,
+                ...(await jsonPost(`/collectors/${props.recipe.id}/browser`, {
+                    action: 'snapshot',
+                })),
+            };
+            browser.candidates = [];
+        }
         if (body.opened === true) browserReady.value = true;
         if (body.opened === true) {
             browser.candidates = [];
@@ -1523,6 +1536,25 @@ function setPickMode(mode: PickMode): void {
                             @click="setPickMode('detail')"
                             >{{ t('builder.pick_visual') }}</Button
                         >
+                        <Button
+                            class="ml-2 mt-2"
+                            variant="secondary"
+                            :disabled="
+                                !browserReady ||
+                                browserBusy ||
+                                !form.website?.detail_url_selector
+                            "
+                            @click="
+                                browserAction('act', {
+                                    input: {
+                                        action: 'click',
+                                        selector:
+                                            form.website?.detail_url_selector,
+                                    },
+                                })
+                            "
+                            >{{ t('builder.open_detail_page') }}</Button
+                        >
                     </div>
                     <Button variant="secondary" @click="addDetailField">{{
                         t('builder.add_field')
@@ -1530,7 +1562,7 @@ function setPickMode(mode: PickMode): void {
                     <div
                         v-for="(field, index) in detailFields"
                         :key="index"
-                        class="mt-3 grid gap-3 rounded-lg border border-outline-glass p-3 sm:grid-cols-4"
+                        class="mt-3 grid gap-3 rounded-lg border border-outline-glass p-3 sm:grid-cols-2 xl:grid-cols-4"
                     >
                         <div>
                             <Label :for="`detail-name-${index}`">{{
@@ -1542,23 +1574,44 @@ function setPickMode(mode: PickMode): void {
                             />
                         </div>
                         <div>
-                            <Label :for="`detail-path-${index}`">{{
-                                t('builder.field_path')
-                            }}</Label
-                            ><Input
-                                :id="`detail-path-${index}`"
-                                v-model="field.path"
-                            /><Button
-                                v-if="browser.candidates.length"
+                            <p class="text-sm font-medium">
+                                {{ t('builder.source_element') }}
+                            </p>
+                            <p
+                                class="mt-1 break-all text-sm text-on-surface-variant"
+                            >
+                                {{
+                                    field.path ||
+                                    t('builder.no_element_selected')
+                                }}
+                            </p>
+                            <Button
                                 class="mt-2"
                                 variant="secondary"
-                                @click="selected = `detail:${field.name}`"
+                                :disabled="!browserReady || browserBusy"
+                                @click="
+                                    startFieldSelection(`detail:${field.name}`)
+                                "
                                 >{{
                                     selected === `detail:${field.name}`
                                         ? t('builder.field_selected')
                                         : t('builder.pick_visual')
                                 }}</Button
                             >
+                            <details class="mt-2 text-sm">
+                                <summary
+                                    class="cursor-pointer text-on-surface-variant"
+                                >
+                                    {{ t('builder.advanced_selectors') }}
+                                </summary>
+                                <Label :for="`detail-path-${index}`">{{
+                                    t('builder.field_path')
+                                }}</Label>
+                                <Input
+                                    :id="`detail-path-${index}`"
+                                    v-model="field.path"
+                                />
+                            </details>
                         </div>
                         <div>
                             <Label :for="`detail-type-${index}`">{{
@@ -1591,6 +1644,12 @@ function setPickMode(mode: PickMode): void {
                                 type="checkbox"
                                 class="h-4 w-4 accent-primary"
                             />{{ t('builder.required') }}</label
+                        >
+                        <Button
+                            variant="danger"
+                            class="self-end"
+                            @click="removeDetailField(index)"
+                            >{{ t('builder.remove_field') }}</Button
                         >
                     </div>
                 </details>

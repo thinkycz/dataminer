@@ -214,6 +214,66 @@ test('website pagination keeps legitimate duplicate rows on one page', async () 
     }
 });
 
+test('load-more preserves new identical rows and completes when the control disappears', async () => {
+    const browser = await chromium.launch({
+        headless: true,
+        chromiumSandbox: true,
+    });
+    try {
+        const page = await browser.newPage();
+        await page.route('https://example.com/', (route) =>
+            route.fulfill({
+                contentType: 'text/html',
+                body: `<article class="item"><h2 class="title">Same</h2></article>
+                <button class="more" onclick="this.insertAdjacentHTML('beforebegin', '<article class=&quot;item&quot;><h2 class=&quot;title&quot;>Same</h2></article><article class=&quot;item&quot;><h2 class=&quot;title&quot;>Third</h2></article>');this.remove()">Load more</button>`,
+            }),
+        );
+        const result = await extractWebsite(page, {
+            ...definition,
+            pagination: {
+                mode: 'load_more',
+                next_path: '.more',
+                max_actions: 3,
+            },
+        });
+        assert.deepEqual(result.rows, [
+            { title: 'Same' },
+            { title: 'Same' },
+            { title: 'Third' },
+        ]);
+        assert.equal(result.complete, true);
+        assert.deepEqual(result.diagnostics, []);
+    } finally {
+        await browser.close();
+    }
+});
+
+test('scrolling collects added records and reports when progress cannot be established', async () => {
+    const browser = await chromium.launch({
+        headless: true,
+        chromiumSandbox: true,
+    });
+    try {
+        const page = await browser.newPage();
+        await page.route('https://example.com/', (route) =>
+            route.fulfill({
+                contentType: 'text/html',
+                body: `<article class="item"><h2 class="title">One</h2></article><div style="height:2000px"></div>
+                <script>window.addEventListener('scroll', () => document.body.insertAdjacentHTML('beforeend', '<article class="item"><h2 class="title">Two</h2></article>'), {once:true})</script>`,
+            }),
+        );
+        const result = await extractWebsite(page, {
+            ...definition,
+            pagination: { mode: 'scroll', max_actions: 4 },
+        });
+        assert.deepEqual(result.rows, [{ title: 'One' }, { title: 'Two' }]);
+        assert.equal(result.complete, false);
+        assert.deepEqual(result.diagnostics, ['no_progress']);
+    } finally {
+        await browser.close();
+    }
+});
+
 test('website detail failures make extraction partial', async () => {
     const browser = await chromium.launch({
         headless: true,

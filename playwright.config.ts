@@ -17,6 +17,7 @@ if (realpathSync(database) !== database) {
     throw new Error('Refusing a linked browser test database.');
 }
 process.env.DATAMINER_E2E_DATABASE = database;
+const useChrome = process.env.DATAMINER_E2E_CHROME === '1';
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -35,8 +36,11 @@ export default defineConfig({
     },
     projects: [
         {
-            name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            name: useChrome ? 'google-chrome' : 'chromium',
+            use: {
+                ...devices['Desktop Chrome'],
+                ...(useChrome ? { channel: 'chrome' } : {}),
+            },
         },
     ],
     webServer: {

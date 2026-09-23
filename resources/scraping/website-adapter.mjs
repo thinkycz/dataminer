@@ -126,7 +126,7 @@ export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
     };
     const deadline = Date.now() + limits.seconds * 1000;
     const rows = [];
-    const seen = new Set();
+    const seen = new Map();
     const diagnostics = new Set();
     const visited = new Set();
     let pages = 0;
@@ -173,7 +173,7 @@ export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
         }
         visited.add(current);
         let added = 0;
-        const currentFingerprints = [];
+        const currentFingerprints = new Map();
         for (const item of await readItems(page, definition)) {
             const detailUrl = item.__detailUrl;
             delete item.__detailUrl;
@@ -226,16 +226,15 @@ export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
             }
             if (reason === 'auth_expired') break;
             const fingerprint = JSON.stringify(item);
+            const occurrence = (currentFingerprints.get(fingerprint) ?? 0) + 1;
+            currentFingerprints.set(fingerprint, occurrence);
             if (
                 ['load_more', 'scroll'].includes(definition.pagination?.mode) &&
                 pages > 1 &&
-                seen.has(fingerprint)
+                occurrence <= (seen.get(fingerprint) ?? 0)
             ) {
-                partial = true;
-                diagnostics.add('ambiguous_duplicate');
                 continue;
             }
-            currentFingerprints.push(fingerprint);
             for (const field of [
                 ...definition.fields,
                 ...(definition.website.detail_fields ?? []),
@@ -254,7 +253,8 @@ export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
             added++;
             if (rows.length >= limits.rows) break;
         }
-        for (const fingerprint of currentFingerprints) seen.add(fingerprint);
+        for (const [fingerprint, count] of currentFingerprints)
+            seen.set(fingerprint, Math.max(seen.get(fingerprint) ?? 0, count));
         if (reason === 'auth_expired') break;
         if (rows.length >= limits.rows) {
             partial = true;

@@ -475,6 +475,7 @@
         "transform_value": "Text to add",
         "detail_url_selector": "Detail-page link selector",
         "detail_fields": "Details-page fields",
+        "open_detail_page": "Open detail page",
         "detail_fields_help": "For pages with a separate detail view, list fields to capture after opening each record. Use relative selectors from the screenshot.",
         "invalid_namespaces": "Enter valid namespace JSON with string values.",
         "access_challenge": "The source is showing a verification page instead of its content. This collector cannot select records until the site allows automated access.",

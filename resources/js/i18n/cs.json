@@ -475,6 +475,7 @@
         "transform_value": "Přidávaný text",
         "detail_url_selector": "Selektor odkazu na detail",
         "detail_fields": "Pole detailu",
+        "open_detail_page": "Otevřít stránku detailu",
         "detail_fields_help": "Pokud má stránka samostatný detail, přidejte pole, která se mají načíst po otevření každého záznamu. Použijte relativní selektory ze snímku.",
         "invalid_namespaces": "Zadejte platný JSON jmenných prostorů s textovými hodnotami.",
         "access_challenge": "Zdroj místo obsahu zobrazuje ověřovací stránku. Sběrač nemůže vybírat záznamy, dokud web nepovolí automatizovaný přístup.",

@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
+import { startTestBrowserService } from './website-fixture.mjs';
 
 const database = process.env.DATAMINER_E2E_DATABASE;
 if (
@@ -28,15 +29,23 @@ if (migration.status !== 0) {
     process.exit(migration.status ?? 1);
 }
 
+const browserService = await startTestBrowserService();
 const server = spawn(
     'php',
     ['-S', '127.0.0.1:8000', '-t', 'public', 'tests/e2e/server.php'],
     {
-        env: process.env,
+        env: {
+            ...process.env,
+            BROWSER_SERVICE_URL: browserService.url,
+            BROWSER_SERVICE_SECRET: browserService.secret,
+        },
         stdio: 'inherit',
     },
 );
 for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => server.kill(signal));
 }
-server.on('exit', (code) => process.exit(code ?? 1));
+server.on('exit', async (code) => {
+    await browserService.close();
+    process.exit(code ?? 1);
+});

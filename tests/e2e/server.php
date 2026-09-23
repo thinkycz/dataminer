@@ -49,8 +49,14 @@ $app->booted(static function () use ($request): void {
         Http::fake(\array_map(static fn(string $source) => Http::response($source), $sources));
         Http::preventStrayRequests();
         $collector = Recipe::query()->find((int) $matches[1]);
-        if ($collector instanceof Recipe && \array_key_exists($collector->getStartUrl(), $sources)) {
-            $realJobs[] = ExecuteScrapeRunJob::class;
+        if ($collector instanceof Recipe) {
+            $websiteFixture = $collector->getStartUrl() === 'https://1.1.1.1/e2e/website';
+            if ($websiteFixture) {
+                Http::allowStrayRequests([Config::inject()->assertString('scraping.browser_service_url') . '/*']);
+            }
+            if ($websiteFixture || \array_key_exists($collector->getStartUrl(), $sources)) {
+                $realJobs[] = ExecuteScrapeRunJob::class;
+            }
         }
     }
     Queue::fake()->except($realJobs);
