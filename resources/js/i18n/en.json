@@ -479,6 +479,8 @@
         "detail_fields_help": "For pages with a separate detail view, list fields to capture after opening each record. Use relative selectors from the screenshot.",
         "invalid_namespaces": "Enter valid namespace JSON with string values.",
         "access_challenge": "The source is asking for verification. Choose Use page to interact with it yourself, then refresh the screenshot. The website may still decline access from this browser.",
+        "control_browser_window": "Control browser window",
+        "native_control_help": "The source is open in a separate browser window on this computer. Use your mouse and keyboard there. Leave the window open, return here and refresh the screenshot to select data or save the session.",
         "use_page": "Use page",
         "select_data": "Select data",
         "interact_page": "Interact with the website preview",

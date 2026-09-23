@@ -91,6 +91,7 @@ export async function startTestBrowserService() {
     const secret = randomBytes(32).toString('hex');
     const service = await startBrowserService({
         secret,
+        allowVisibleBrowser: process.env.DATAMINER_E2E_NATIVE === '1',
         browserFactory: {
             launch: async (options) => {
                 const browser = await chromium.launch(options);

@@ -318,7 +318,7 @@ class RecipeController
             }
             $definition = $owned->getSetupDraft() === null ? null : RecipeDefinition::fromArray($owned->getSetupDraft());
             $connection = $definition?->getConnectionId() === null ? null : CollectorConnection::query()->where('user_id', $user->getKey())->findOrFail($definition->getConnectionId());
-            $payload = ['url' => $definition?->getUrl() ?? $owned->getStartUrl()];
+            $payload = ['url' => $definition?->getUrl() ?? $owned->getStartUrl(), 'interactive' => true];
             \abort_unless($connection === null || (new CollectorConnectionService())->origin($payload['url']) === $connection->getOrigin(), 422);
             if ($connection !== null && $connection->getKind() === 'browser' && $connection->getStatus() === 'ready') {
                 $payload['storageState'] = $connection->getCredentials();

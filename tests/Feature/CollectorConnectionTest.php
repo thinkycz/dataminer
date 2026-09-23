@@ -10,6 +10,7 @@ use Database\Factories\RecipeFactory;
 use Database\Factories\RecipeVersionFactory;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Thinkycz\LaravelCore\Support\Resolver;
 
@@ -38,6 +39,7 @@ use Thinkycz\LaravelCore\Support\Resolver;
     $owner = UserFactory::new()->createOne();
     $recipe = RecipeFactory::new()->for($owner)->createOne();
     $this->be($owner, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertExactJson(['opened' => true, 'screenshot' => 'fixture-image', 'metadata' => ['viewport' => ['width' => 1280, 'height' => 800]]]);
+    Http::assertSent(static fn(Request $request): bool => $request->url() === 'http://127.0.0.1:3210/sessions' && $request['interactive'] === true);
     $other = UserFactory::new()->createOne();
     $this->be($other, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'snapshot'])->assertNotFound();
     Http::assertSentCount(2);

@@ -48,6 +48,7 @@ const browser = reactive({
     sessionId: '',
     screenshot: '',
     accessChallenge: false,
+    nativeControl: false,
     viewport: { width: 1, height: 1 },
     candidates: [] as Array<{
         selector: string;
@@ -737,6 +738,8 @@ async function browserAction(
             browser.viewport = body.viewport as typeof browser.viewport;
         if (Array.isArray(metadata.matches))
             browser.matches = metadata.matches as typeof browser.matches;
+        if (typeof metadata.nativeControl === 'boolean')
+            browser.nativeControl = metadata.nativeControl;
         if (typeof metadata.accessChallenge === 'boolean')
             browser.accessChallenge = metadata.accessChallenge;
         if (Array.isArray(body.candidates))
@@ -1253,6 +1256,21 @@ function setPickMode(mode: PickMode): void {
                     <p class="mt-1 max-w-md text-sm text-on-surface-variant">
                         {{ t('builder.preview_empty_help') }}
                     </p>
+                </div>
+                <div
+                    v-if="browser.nativeControl && browserReady"
+                    class="rounded-lg border border-outline-glass bg-surface-container-low p-4"
+                >
+                    <p class="mb-3 text-sm text-on-surface-variant">
+                        {{ t('builder.native_control_help') }}
+                    </p>
+                    <Button
+                        :disabled="browserBusy"
+                        @click="
+                            browserAction('act', { input: { action: 'focus' } })
+                        "
+                        >{{ t('builder.control_browser_window') }}</Button
+                    >
                 </div>
                 <div v-if="browser.screenshot" class="flex flex-wrap gap-2">
                     <Button

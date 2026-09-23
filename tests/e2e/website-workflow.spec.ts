@@ -31,6 +31,32 @@ test('manual page mode clicks a checkbox inside a frame and preserves the chosen
         .click();
     await page.waitForURL(/\/collectors\/\d+\/setup$/);
     await page.getByRole('button', { name: 'Open page', exact: true }).click();
+    if (process.env.DATAMINER_E2E_NATIVE === '1') {
+        const focused = page.waitForResponse(
+            (response) =>
+                response.url().endsWith('/browser') &&
+                response.request().postDataJSON().input?.action === 'focus',
+        );
+        await page
+            .getByRole('button', {
+                name: 'Control browser window',
+                exact: true,
+            })
+            .click();
+        expect((await focused).ok()).toBe(true);
+        await expect(
+            page.getByText('The source is open in a separate browser window', {
+                exact: false,
+            }),
+        ).toBeVisible();
+    } else {
+        await expect(
+            page.getByRole('button', {
+                name: 'Control browser window',
+                exact: true,
+            }),
+        ).toHaveCount(0);
+    }
     await page.getByRole('button', { name: 'Use page', exact: true }).click();
     const preview = page.getByRole('button', {
         name: 'Interact with the website preview',

@@ -479,6 +479,8 @@
         "detail_fields_help": "Ak má stránka samostatný detail, pridajte polia načítané po otvorení každého záznamu. Použite relatívne selektory zo snímky.",
         "invalid_namespaces": "Zadajte platný JSON menných priestorov s textovými hodnotami.",
         "access_challenge": "Zdroj vyžaduje overenie. Zvoľte Ovládať stránku, vykonajte overenie sami a potom obnovte snímku. Web môže prístup z tohto prehliadača aj naďalej odmietnuť.",
+        "control_browser_window": "Ovládať okno prehliadača",
+        "native_control_help": "Zdroj je otvorený v samostatnom okne prehliadača na tomto počítači. Používajte v ňom svoju myš a klávesnicu. Okno nechajte otvorené, vráťte sa sem a obnovte snímku na výber údajov alebo uloženie relácie.",
         "use_page": "Ovládať stránku",
         "select_data": "Vyberať dáta",
         "interact_page": "Ovládať web v náhľade",

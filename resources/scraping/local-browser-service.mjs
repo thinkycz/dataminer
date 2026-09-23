@@ -10,7 +10,11 @@ const rawSecret = environment
     ?.trim();
 const secret = rawSecret?.replace(/^(["'])(.*)\1$/, '$2');
 
-const service = await startBrowserService({ secret, port: 3210 });
+const service = await startBrowserService({
+    secret,
+    port: 3210,
+    allowVisibleBrowser: true,
+});
 process.stdout.write(`Browser service listening on ${service.url}\n`);
 
 let closing = false;

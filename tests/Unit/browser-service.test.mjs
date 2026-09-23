@@ -321,6 +321,7 @@ test('private service requires secret and creates isolated contexts', async () =
     const browserFactory = {
         launch: async (options) => {
             assert.equal(options.chromiumSandbox, true);
+            assert.equal(options.headless, true);
             assert.deepEqual(
                 Object.keys(options.env).filter(
                     (name) =>
@@ -372,6 +373,7 @@ test('private service requires secret and creates isolated contexts', async () =
             const response = await fetch(`${service.url}/sessions`, {
                 method: 'POST',
                 headers: { authorization: `Bearer ${secret}` },
+                body: JSON.stringify({ interactive: true }),
             });
             assert.equal(response.status, 201);
             ids.push((await response.json()).sessionId);
@@ -422,4 +424,123 @@ test('a stopped browser reports unavailable and the next session restarts it', a
     } finally {
         await service.close();
     }
+});
+
+test('desktop sessions expose the same visible page and close their browser on release', async () => {
+    const launches = [];
+    const browsers = [];
+    const pages = [];
+    const secret = 'v'.repeat(40);
+    const headers = { authorization: `Bearer ${secret}` };
+    const service = await startBrowserService({
+        secret,
+        allowVisibleBrowser: true,
+        browserFactory: {
+            launch: async (options) => {
+                launches.push(options.headless);
+                const browser = await chromium.launch({
+                    ...options,
+                    headless:
+                        process.env.DATAMINER_E2E_NATIVE === '1'
+                            ? options.headless
+                            : true,
+                });
+                browsers.push(browser);
+                return {
+                    close: () => browser.close(),
+                    isConnected: () => browser.isConnected(),
+                    newContext: async (settings) => {
+                        const context = await browser.newContext(settings);
+                        context.on('page', (page) => pages.push(page));
+                        return context;
+                    },
+                };
+            },
+        },
+    });
+    try {
+        const created = await fetch(`${service.url}/sessions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ interactive: true }),
+        });
+        assert.equal(created.status, 201);
+        const { sessionId } = await created.json();
+        assert.deepEqual(launches, [true, false]);
+        const source = pages[0];
+        await source.route('https://example.com/', (route) =>
+            route.fulfill({
+                contentType: 'text/html',
+                body: '<label>Display name <input name="display"></label><button onclick="document.cookie=\'preference=saved; SameSite=Lax; Secure\'; document.title=document.querySelector(\'input\').value">Save preference</button>',
+            }),
+        );
+        await source.goto('https://example.com/');
+        const focus = await fetch(`${service.url}/sessions/${sessionId}/act`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ action: 'focus' }),
+        });
+        assert.equal(focus.status, 200);
+        // Ordinary source form interaction stands in for a user's native window input.
+        await source.getByLabel('Display name').fill('Native window edit');
+        await source.getByRole('button', { name: 'Save preference' }).click();
+        const capture = await fetch(
+            `${service.url}/sessions/${sessionId}/snapshot`,
+            { method: 'POST', headers },
+        );
+        const picture = await capture.json();
+        assert.equal(picture.metadata.nativeControl, true);
+        assert.equal(picture.metadata.title, 'Native window edit');
+        assert.ok(picture.screenshot.length > 100);
+        const state = await (
+            await fetch(`${service.url}/sessions/${sessionId}/state`, {
+                headers,
+            })
+        ).json();
+        assert.ok(
+            state.storageState.cookies.some(
+                (cookie) =>
+                    cookie.name === 'preference' && cookie.value === 'saved',
+            ),
+        );
+        const released = await fetch(`${service.url}/sessions/${sessionId}`, {
+            method: 'DELETE',
+            headers,
+        });
+        assert.equal(released.status, 200);
+        assert.equal(browsers[1].isConnected(), false);
+        assert.equal(browsers[0].isConnected(), true);
+        const background = await fetch(`${service.url}/sessions`, {
+            method: 'POST',
+            headers,
+        });
+        assert.equal(background.status, 201);
+        assert.deepEqual(launches, [true, false]);
+        const backgroundId = (await background.json()).sessionId;
+        const unavailable = await fetch(
+            `${service.url}/sessions/${backgroundId}/act`,
+            {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ action: 'focus' }),
+            },
+        );
+        assert.equal(unavailable.status, 400);
+        const manualClose = await fetch(`${service.url}/sessions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ interactive: true }),
+        });
+        const manualCloseId = (await manualClose.json()).sessionId;
+        await browsers[2].close();
+        const expired = await fetch(
+            `${service.url}/sessions/${manualCloseId}/state`,
+            { headers },
+        );
+        assert.equal(expired.status, 404);
+        assert.equal(browsers[0].isConnected(), true);
+    } finally {
+        await service.close();
+    }
+    assert.ok(browsers.every((browser) => !browser.isConnected()));
 });

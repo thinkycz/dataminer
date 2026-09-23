@@ -228,6 +228,7 @@ export async function startBrowserService({
     port = 0,
     allowPrivateBind = false,
     browserFactory = chromium,
+    allowVisibleBrowser = false,
 } = {}) {
     if (typeof secret !== 'string' || secret.length < 32)
         throw new Error('Service secret must be at least 32 characters');
@@ -238,12 +239,26 @@ export async function startBrowserService({
         throw new Error(
             'Service must bind to loopback or an explicitly private network',
         );
-    const launchBrowser = () =>
+    const launchBrowser = (visible = false) =>
         browserFactory.launch({
-            headless: true,
+            headless: !visible,
             chromiumSandbox: true,
             env: Object.fromEntries(
-                ['HOME', 'PATH', 'TMPDIR', 'LANG', 'PLAYWRIGHT_BROWSERS_PATH']
+                [
+                    'HOME',
+                    'PATH',
+                    'TMPDIR',
+                    'LANG',
+                    'PLAYWRIGHT_BROWSERS_PATH',
+                    ...(visible
+                        ? [
+                              'DISPLAY',
+                              'XAUTHORITY',
+                              'WAYLAND_DISPLAY',
+                              'XDG_RUNTIME_DIR',
+                          ]
+                        : []),
+                ]
                     .filter((name) => process.env[name])
                     .map((name) => [name, process.env[name]]),
             ),
@@ -264,7 +279,11 @@ export async function startBrowserService({
         try {
             await session.context.close();
         } finally {
-            await session.proxy.close();
+            try {
+                await session.visibleBrowser?.close();
+            } finally {
+                await session.proxy.close();
+            }
         }
     };
     const ensureBrowser = async () => {
@@ -323,6 +342,7 @@ export async function startBrowserService({
                     ),
                 });
                 let context;
+                let visibleBrowser;
                 const budget = {
                     requests: 0,
                     maxRequests: bounded(input.limits?.requests, 300, 1000),
@@ -334,7 +354,11 @@ export async function startBrowserService({
                     exceeded: false,
                 };
                 try {
-                    context = await currentBrowser.newContext({
+                    if (allowVisibleBrowser && input.interactive === true)
+                        visibleBrowser = await launchBrowser(true);
+                    context = await (
+                        visibleBrowser ?? currentBrowser
+                    ).newContext({
                         proxy: { server: proxy.url },
                         serviceWorkers: 'block',
                         acceptDownloads: false,
@@ -381,6 +405,7 @@ export async function startBrowserService({
                         );
                     const session = {
                         context,
+                        visibleBrowser,
                         page,
                         proxy,
                         touched: Date.now(),
@@ -391,12 +416,18 @@ export async function startBrowserService({
                         ? await authExpired(session, navigationResponse)
                         : false;
                     sessions.set(id, session);
+                    if (visibleBrowser) {
+                        page.on('close', () => {
+                            void closeSession(id).catch(() => {});
+                        });
+                    }
                     return send(response, 201, {
                         sessionId: id,
                         authExpired: expired,
                     });
                 } catch (error) {
                     await context?.close();
+                    await visibleBrowser?.close();
                     await proxy.close();
                     throw error;
                 }
@@ -441,6 +472,7 @@ export async function startBrowserService({
             if (request.method === 'POST' && action === 'snapshot') {
                 const input = await bodyOf(request);
                 const result = await snapshot(session.page, input.selector);
+                result.metadata.nativeControl = Boolean(session.visibleBrowser);
                 result.metadata.authExpired = await authExpired(session);
                 return send(response, 200, result);
             }
@@ -459,7 +491,13 @@ export async function startBrowserService({
             }
             if (request.method === 'POST' && action === 'act') {
                 const input = await bodyOf(request);
-                if (
+                if (input.action === 'focus') {
+                    if (!session.visibleBrowser)
+                        throw new Error(
+                            'A visible browser is only available on a local desktop worker.',
+                        );
+                    await session.page.bringToFront();
+                } else if (
                     input.action === 'click' &&
                     Number.isFinite(input.x) &&
                     Number.isFinite(input.y)
@@ -538,7 +576,7 @@ export async function startBrowserService({
         url: `http://${host}:${server.address().port}`,
         close: async () => {
             clearInterval(reaper);
-            for (const id of [...sessions.keys()]) await closeSession(id);
+            await Promise.allSettled([...sessions.keys()].map(closeSession));
             await new Promise((resolve) => server.close(resolve));
             await browser.close();
         },
