@@ -54,6 +54,7 @@ async function serveSource(route) {
                 </form><script>document.querySelector('form').onsubmit = (event) => {
                     event.preventDefault();
                     if (event.target.email.value === 'catalog@example.com' && event.target.password.value === 'catalog-password') {
+                        sessionStorage.setItem('catalog_window', 'signed-in');
                         document.cookie = 'catalog_session=demo; Path=/; Secure; SameSite=Lax';
                         location.href = '/e2e/website';
                     }
@@ -82,7 +83,7 @@ async function serveSource(route) {
                 )
                 .join(
                     '',
-                )}${secondPage ? '' : '<a class="next" href="/e2e/website?page=2">Next page</a>'}`,
+                )}${secondPage ? '' : '<a class="next" href="/e2e/website?page=2">Next page</a>'}${process.env.DATAMINER_E2E_NATIVE === '1' ? `<script>if (sessionStorage.getItem('catalog_window') !== 'signed-in') document.body.innerHTML = '<h1>Original browser window required</h1>';</script>` : ''}`,
         ),
     });
 }

@@ -570,9 +570,20 @@ function serializableDefinition(): Definition {
         ) as Field[];
     return definition;
 }
-function activatePreview(): void {
-    if (processing.value) return;
+async function activatePreview(): Promise<void> {
+    if (processing.value || browserBusy.value) return;
     processing.value = true;
+    if (
+        browser.nativeControl &&
+        browserReady.value &&
+        !browserSessionSaved.value
+    ) {
+        await browserAction('save');
+        if (browserError.value || !browserSessionSaved.value) {
+            processing.value = false;
+            return;
+        }
+    }
     router.post(
         `/collectors/${props.recipe.id}/setup`,
         {
@@ -746,14 +757,17 @@ async function browserAction(
             browser.candidates = body.candidates as typeof browser.candidates;
         if (body.saved === true) {
             browserSessionSaved.value = true;
-            browserReady.value = false;
-            router.reload({
-                only: ['definition', 'connections'],
-                onSuccess: () => {
-                    form.connection_id =
-                        props.definition?.connection_id ?? null;
-                },
-            });
+            browserReady.value = body.retained === true;
+            await new Promise<void>((resolve) =>
+                router.reload({
+                    only: ['definition', 'connections'],
+                    onSuccess: () => {
+                        form.connection_id =
+                            props.definition?.connection_id ?? null;
+                    },
+                    onFinish: () => resolve(),
+                }),
+            );
         }
     } catch (error) {
         browserError.value =
@@ -1406,7 +1420,13 @@ function setPickMode(mode: PickMode): void {
                             role="status"
                             class="text-sm"
                         >
-                            {{ t('builder.browser_session_saved') }}
+                            {{
+                                t(
+                                    browserReady
+                                        ? 'builder.browser_session_retained'
+                                        : 'builder.browser_session_saved',
+                                )
+                            }}
                         </p>
                     </div>
                     <div

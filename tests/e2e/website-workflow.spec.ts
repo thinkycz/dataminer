@@ -85,7 +85,11 @@ test('manual page mode clicks a checkbox inside a frame and preserves the chosen
         page.getByLabel('Saved credentials').locator('option'),
     ).toHaveCount(2);
     await expect(
-        page.getByText('Session saved. Open the page again to continue.'),
+        page.getByText(
+            process.env.DATAMINER_E2E_NATIVE === '1'
+                ? 'Session saved. This browser window stays open for previews and runs. Keep it open; closing it or restarting the browser service requires reconnection.'
+                : 'Session saved. Open the page again to continue.',
+        ),
     ).toBeVisible();
     const reopened = page.waitForResponse(
         (response) =>
@@ -144,10 +148,14 @@ test('saved login, visual fields, detail pages and pagination produce downloadab
         await expect(login.getByLabel('Credential value')).toHaveValue('');
     }
     await login.getByRole('button', { name: 'Submit login' }).click();
-    await login.getByRole('button', { name: 'Save signed-in session' }).click();
-    await expect(
-        page.getByLabel('Saved credentials').locator('option'),
-    ).toHaveCount(2);
+    if (process.env.DATAMINER_E2E_NATIVE !== '1') {
+        await login
+            .getByRole('button', { name: 'Save signed-in session' })
+            .click();
+        await expect(
+            page.getByLabel('Saved credentials').locator('option'),
+        ).toHaveCount(2);
+    }
     await page.getByRole('button', { name: 'Open page', exact: true }).click();
     await page.getByRole('button', { name: '1. Pick a repeated item' }).click();
     await inspectSource(page, 500, 230);

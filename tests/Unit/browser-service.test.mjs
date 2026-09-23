@@ -503,6 +503,52 @@ test('desktop sessions expose the same visible page and close their browser on r
                     cookie.name === 'preference' && cookie.value === 'saved',
             ),
         );
+        assert.equal(state.storageState.liveSessionId, sessionId);
+        await source.evaluate(() => {
+            document.body.insertAdjacentHTML(
+                'beforeend',
+                '<article class="item"><h2 class="title">Only in this live page</h2></article>',
+            );
+            sessionStorage.setItem('windowOnly', 'present');
+        });
+        const resumed = await (
+            await fetch(`${service.url}/sessions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    interactive: true,
+                    resumeSessionId: sessionId,
+                    url: 'https://example.com/',
+                }),
+            })
+        ).json();
+        assert.equal(resumed.sessionId, sessionId);
+        assert.deepEqual(launches, [true, false]);
+        for (let run = 0; run < 2; run++) {
+            const extracted = await (
+                await fetch(`${service.url}/sessions/${sessionId}/extract`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        definition: {
+                            ...definition,
+                            pagination: { mode: 'none' },
+                        },
+                    }),
+                })
+            ).json();
+            assert.deepEqual(extracted.rows, [
+                { title: 'Only in this live page' },
+            ]);
+            assert.equal(extracted.complete, true);
+            assert.equal(
+                await source.evaluate(() =>
+                    sessionStorage.getItem('windowOnly'),
+                ),
+                'present',
+            );
+            assert.equal(browsers[1].isConnected(), true);
+        }
         const released = await fetch(`${service.url}/sessions/${sessionId}`, {
             method: 'DELETE',
             headers,
@@ -538,6 +584,17 @@ test('desktop sessions expose the same visible page and close their browser on r
             { headers },
         );
         assert.equal(expired.status, 404);
+        const expiredRun = await (
+            await fetch(`${service.url}/sessions/${manualCloseId}/extract`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ definition }),
+            })
+        ).json();
+        assert.deepEqual(expiredRun.diagnostics, ['auth_expired']);
+        assert.equal(expiredRun.complete, false);
+        assert.deepEqual(launches, [true, false, false]);
+
         assert.equal(browsers[0].isConnected(), true);
     } finally {
         await service.close();

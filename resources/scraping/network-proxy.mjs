@@ -186,6 +186,12 @@ export async function createPublicProxy({
     return {
         url: `http://127.0.0.1:${server.address().port}`,
         stats: () => ({ requests, bytes }),
+        resetLimits: (requestLimit, byteLimit) => {
+            requests = 0;
+            bytes = 0;
+            maxRequests = requestLimit;
+            maxBytes = byteLimit;
+        },
         close: async () => {
             for (const socket of sockets) socket.destroy();
             server.closeAllConnections();

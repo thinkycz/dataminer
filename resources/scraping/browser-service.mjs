@@ -291,7 +291,9 @@ export async function startBrowserService({
         if (!launchInProgress) {
             launchInProgress = (async () => {
                 await Promise.allSettled(
-                    [...sessions.keys()].map(closeSession),
+                    [...sessions.entries()]
+                        .filter(([, session]) => !session.visibleBrowser)
+                        .map(([id]) => closeSession(id)),
                 );
                 browser = await launchBrowser();
                 return browser;
@@ -303,7 +305,10 @@ export async function startBrowserService({
     };
     const reaper = setInterval(() => {
         for (const [id, session] of sessions) {
-            if (Date.now() - session.touched > SESSION_MS)
+            if (
+                !session.visibleBrowser &&
+                Date.now() - session.touched > SESSION_MS
+            )
                 void closeSession(id).catch(() => {});
         }
     }, 30_000);
@@ -327,12 +332,32 @@ export async function startBrowserService({
                 });
             }
             if (request.method === 'POST' && path === '/sessions') {
+                const input = await bodyOf(request);
+                const resumed = sessions.get(input.resumeSessionId);
+                if (resumed) {
+                    if (resumed.busy)
+                        return send(response, 409, {
+                            error: 'Browser is extracting. Wait for the run to finish.',
+                        });
+                    resumed.touched = Date.now();
+                    if (
+                        input.url &&
+                        new URL(resumed.page.url()).href !==
+                            new URL(validateUrl(input.url)).href
+                    )
+                        await resumed.page.goto(validateUrl(input.url), {
+                            waitUntil: 'domcontentloaded',
+                        });
+                    return send(response, 201, {
+                        sessionId: input.resumeSessionId,
+                        authExpired: await authExpired(resumed),
+                    });
+                }
                 const currentBrowser = await ensureBrowser();
                 if (sessions.size >= MAX_SESSIONS)
                     return send(response, 429, {
                         error: 'Session limit reached',
                     });
-                const input = await bodyOf(request);
                 const proxy = await createPublicProxy({
                     maxRequests: bounded(input.limits?.requests, 300, 1000),
                     maxBytes: bounded(
@@ -362,7 +387,12 @@ export async function startBrowserService({
                         proxy: { server: proxy.url },
                         serviceWorkers: 'block',
                         acceptDownloads: false,
-                        storageState: input.storageState ?? undefined,
+                        storageState: input.storageState
+                            ? {
+                                  cookies: input.storageState.cookies ?? [],
+                                  origins: input.storageState.origins ?? [],
+                              }
+                            : undefined,
                         viewport: { width: 1280, height: 800 },
                     });
                     context.on('page', (opened) => {
@@ -411,6 +441,7 @@ export async function startBrowserService({
                         touched: Date.now(),
                         signedInSelector: input.signedInSelector ?? null,
                         budget,
+                        busy: false,
                     };
                     const expired = input.url
                         ? await authExpired(session, navigationResponse)
@@ -437,13 +468,23 @@ export async function startBrowserService({
             );
             if (!match) return send(response, 404, { error: 'Not found' });
             const [, id, action] = match;
-            if (!browser.isConnected())
-                return send(response, 503, {
-                    error: 'Browser unavailable. Open the page again.',
-                });
             const session = sessions.get(id);
-            if (!session)
+            if (!session) {
+                if (request.method === 'POST' && action === 'extract')
+                    return send(response, 200, {
+                        rows: [],
+                        complete: false,
+                        diagnostics: ['auth_expired'],
+                        bytes: 0,
+                        requests: 0,
+                        pages: 0,
+                    });
                 return send(response, 404, { error: 'Session expired' });
+            }
+            if (session.busy && request.method !== 'DELETE')
+                return send(response, 409, {
+                    error: 'Browser is extracting. Wait for the run to finish.',
+                });
             session.touched = Date.now();
             if (request.method === 'DELETE' && !action) {
                 await closeSession(id);
@@ -451,7 +492,12 @@ export async function startBrowserService({
             }
             if (request.method === 'GET' && action === 'state') {
                 return send(response, 200, {
-                    storageState: await session.context.storageState(),
+                    storageState: {
+                        ...(await session.context.storageState()),
+                        ...(session.visibleBrowser
+                            ? { liveSessionId: id }
+                            : {}),
+                    },
                 });
             }
             if (request.method === 'GET' && action === 'inspect') {
@@ -528,6 +574,28 @@ export async function startBrowserService({
             }
             if (request.method === 'POST' && action === 'extract') {
                 const input = await bodyOf(request);
+                // Recheck after reading the body: another request may have acquired the page.
+                if (session.busy)
+                    return send(response, 409, {
+                        error: 'Browser is extracting. Wait for the run to finish.',
+                    });
+                session.busy = true;
+                session.budget.requests = 0;
+                session.budget.exceeded = false;
+                session.budget.maxRequests = bounded(
+                    input.definition?.limits?.requests,
+                    300,
+                    1000,
+                );
+                session.budget.maxBytes = bounded(
+                    input.definition?.limits?.bytes,
+                    40_000_000,
+                    100_000_000,
+                );
+                session.proxy.resetLimits(
+                    session.budget.maxRequests,
+                    session.budget.maxBytes,
+                );
                 const timer = setTimeout(
                     () => void closeSession(id).catch(() => {}),
                     bounded(
@@ -545,9 +613,16 @@ export async function startBrowserService({
                         session.page,
                         input.definition,
                         input.limits,
+                        {
+                            preserveCurrentPage: Boolean(
+                                session.visibleBrowser,
+                            ),
+                        },
                     );
                 } finally {
                     clearTimeout(timer);
+                    session.busy = false;
+                    session.touched = Date.now();
                 }
                 const stats = session.proxy.stats();
                 const exhausted =

@@ -486,6 +486,7 @@
         "interact_page": "Ovládať web v náhľade",
         "interact_help": "Vaše kliknutia sa posielajú priamo na web. Použite jeho ovládacie prvky a potom zvoľte Vyberať dáta na výber záznamov a polí. Ak sa stránka ešte načítava, obnovte snímku. Uložením relácie uchováte jej cookies.",
         "save_browser_session": "Uložiť reláciu prehliadača",
+        "browser_session_retained": "Relácia je uložená. Toto okno zostáva otvorené pre ukážky aj zbery. Nechajte ho otvorené; po zatvorení alebo reštarte služby prehliadača je potrebné znova pripojiť reláciu.",
         "browser_session_saved": "Relácia uložená. Ak chcete pokračovať, znova otvorte stránku.",
         "pick_records_step": "1. Vybrať opakujúcu sa položku",
         "pick_columns_step": "2. Pridať stĺpce zo stránky",

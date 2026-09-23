@@ -12,7 +12,7 @@ use Thinkycz\LaravelCore\Support\Typer;
 class WebsiteAdapter
 {
     /**
-     * Extract in a fresh isolated browser context; always close it.
+     * Reuse an owned live browser when available; close only disposable contexts.
      */
     public function execute(RecipeDefinition $definition, CollectorConnection|null $connection): ExtractionResult
     {
@@ -21,8 +21,11 @@ class WebsiteAdapter
         if ($connection !== null) {
             $payload['storageState'] = $connection->getCredentials();
         }
-        $session = $browser->request('POST', '/sessions', $payload);
-        $path = '/sessions/' . \rawurlencode(Typer::assertString($session['sessionId']));
+        $liveSessionId = $payload['storageState']['liveSessionId'] ?? null;
+        $sessionId = $liveSessionId === null
+            ? Typer::assertString($browser->request('POST', '/sessions', $payload)['sessionId'])
+            : Typer::assertString($liveSessionId);
+        $path = '/sessions/' . \rawurlencode($sessionId);
         try {
             $result = $browser->request('POST', $path . '/extract', ['definition' => $definition->toArray()]);
             $data = $definition->toArray();
@@ -58,7 +61,9 @@ class WebsiteAdapter
             return new ExtractionResult($rows, $complete, $diagnostics, Typer::assertInt($result['bytes']), Typer::assertInt($result['requests']), Typer::assertInt($result['pages']));
         } finally {
             try {
-                $browser->request('DELETE', $path);
+                if ($liveSessionId === null) {
+                    $browser->request('DELETE', $path);
+                }
             } catch (RuntimeException) {
                 // A timed-out service operation already closes its context.
             }

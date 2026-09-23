@@ -92,3 +92,29 @@ use Thinkycz\LaravelCore\Support\Resolver;
     (new CollectorConnectionService())->expire($connection->getKey(), 2);
     \expect($connection->refresh()->getStatus())->toBe('expired')->and($connection->hasVerifiedState())->toBeFalse()->and($schedule->refresh()->getStatus())->toBe('paused');
 });
+
+\test('saving and reopening a live connection retains the owned browser window', function (): void {
+    \config()->set('scraping.browser_service_secret', 'fixture-secret-only-server');
+    Http::preventStrayRequests();
+    Http::fake([
+        '127.0.0.1:3210/sessions' => Http::response(['sessionId' => 'live-window']),
+        '127.0.0.1:3210/sessions/live-window/snapshot' => Http::response(['screenshot' => 'fixture-image', 'metadata' => ['nativeControl' => true]]),
+        '127.0.0.1:3210/sessions/live-window/state' => Http::response(['storageState' => ['cookies' => [], 'origins' => [], 'liveSessionId' => 'live-window']]),
+    ]);
+    $owner = UserFactory::new()->createOne();
+    $recipe = RecipeFactory::new()->for($owner)->createOne([
+        'start_url' => 'https://example.com',
+        'setup_draft' => RecipeDefinition::fromArray([
+            'schema_version' => 1, 'source_type' => 'website', 'url' => 'https://example.com',
+            'website' => ['record_selector' => '.item'],
+            'fields' => [['name' => 'name', 'path' => 'h2', 'type' => 'string', 'required' => true]],
+        ])->toArray(),
+    ]);
+    $this->be($owner, 'users')->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertOk();
+    $this->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'save'])->assertExactJson(['saved' => true, 'retained' => true]);
+    $this->postJson('/collectors/' . $recipe->getKey() . '/browser', ['action' => 'open'])->assertOk();
+    Http::assertNotSent(static fn(Request $request): bool => $request->method() === 'DELETE');
+    Http::assertSent(static fn(Request $request): bool => $request->url() === 'http://127.0.0.1:3210/sessions' && ($request['resumeSessionId'] ?? null) === 'live-window');
+    \expect($recipe->refresh()->getSetupDraft()['connection_id'])->toBeInt();
+    $this->assertDatabaseCount('collector_connections', 1);
+});

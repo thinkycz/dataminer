@@ -26,7 +26,6 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 use InvalidArgumentException;
-use RuntimeException;
 use Thinkycz\LaravelCore\Support\Resolver;
 use Thinkycz\LaravelCore\Support\Thrower;
 use Thinkycz\LaravelCore\Support\Typer;
@@ -308,20 +307,19 @@ class RecipeController
         $key = 'collector_browser.' . $owned->getKey();
         $browser = new BrowserService();
         if ($action === 'open') {
-            $old = $request->session()->get($key);
-            if (\is_string($old)) {
-                try {
-                    $browser->request('DELETE', '/sessions/' . \rawurlencode($old));
-                } catch (RuntimeException) {
-                    $request->session()->forget($key);
-                }
-            }
             $definition = $owned->getSetupDraft() === null ? null : RecipeDefinition::fromArray($owned->getSetupDraft());
             $connection = $definition?->getConnectionId() === null ? null : CollectorConnection::query()->where('user_id', $user->getKey())->findOrFail($definition->getConnectionId());
             $payload = ['url' => $definition?->getUrl() ?? $owned->getStartUrl(), 'interactive' => true];
             \abort_unless($connection === null || (new CollectorConnectionService())->origin($payload['url']) === $connection->getOrigin(), 422);
             if ($connection !== null && $connection->getKind() === 'browser' && $connection->getStatus() === 'ready') {
                 $payload['storageState'] = $connection->getCredentials();
+            }
+            $context = $request->session()->get($key . '_context');
+            $old = $request->session()->get($key);
+            if (\is_string($old) && \is_array($context) && ($context['origin'] ?? null) === (new CollectorConnectionService())->origin($payload['url']) && ($context['connection_id'] ?? null) === $definition?->getConnectionId()) {
+                $payload['resumeSessionId'] = $old;
+            } elseif (isset($payload['storageState']['liveSessionId'])) {
+                $payload['resumeSessionId'] = $payload['storageState']['liveSessionId'];
             }
             $result = $browser->request('POST', '/sessions', $payload);
             $sessionId = Typer::assertString($result['sessionId']);
@@ -370,10 +368,15 @@ class RecipeController
                     $locked->update(['setup_draft' => [...$draft, 'connection_id' => $connection->getKey()]]);
                 }
             });
-            $browser->request('DELETE', $path);
-            $request->session()->forget([$key, $key . '_context']);
+            $retained = isset(Typer::assertArray($state['storageState'])['liveSessionId']);
+            if (!$retained) {
+                $browser->request('DELETE', $path);
+                $request->session()->forget([$key, $key . '_context']);
+            } else {
+                $request->session()->put($key . '_context', [...$context, 'connection_id' => $owned->refresh()->getSetupDraft()['connection_id'] ?? null]);
+            }
 
-            return new JsonResponse(['saved' => true]);
+            return new JsonResponse(['saved' => true, 'retained' => $retained]);
         }
         \abort(422);
     }

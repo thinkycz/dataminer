@@ -110,7 +110,12 @@ async function authExpired(page, selector, response) {
     return selector ? (await page.locator(selector).count()) === 0 : false;
 }
 
-export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
+export async function extractWebsite(
+    page,
+    rawDefinition,
+    rawLimits = {},
+    { preserveCurrentPage = false } = {},
+) {
     const definition = validateWebsiteDefinition(rawDefinition);
     const limits = {
         rows: bounded(rawLimits.rows ?? definition.limits?.rows, 100, 1000),
@@ -133,9 +138,14 @@ export async function extractWebsite(page, rawDefinition, rawLimits = {}) {
     let partial = false;
     let reason = null;
     let naturalEnd = false;
-    let response = await page.goto(definition.url, {
-        waitUntil: 'domcontentloaded',
-    });
+    let response;
+    if (
+        !preserveCurrentPage ||
+        new URL(page.url()).href !== new URL(definition.url).href
+    )
+        response = await page.goto(definition.url, {
+            waitUntil: 'domcontentloaded',
+        });
     while (pages < limits.pages && Date.now() < deadline) {
         pages++;
         if (

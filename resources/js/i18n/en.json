@@ -486,6 +486,7 @@
         "interact_page": "Interact with the website preview",
         "interact_help": "Your clicks go directly to the website. Use its controls yourself, then choose Select data to pick records and fields. Refresh the screenshot if the page is still loading. Save the browser session to reuse its cookies.",
         "save_browser_session": "Save browser session",
+        "browser_session_retained": "Session saved. This browser window stays open for previews and runs. Keep it open; closing it or restarting the browser service requires reconnection.",
         "browser_session_saved": "Session saved. Open the page again to continue.",
         "pick_records_step": "1. Pick a repeated item",
         "pick_columns_step": "2. Add columns from the page",
