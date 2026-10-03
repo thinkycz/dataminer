@@ -22,14 +22,15 @@ function fixture(email: string, state: string): string {
 
 async function createCollector(page: Page): Promise<string> {
     await page
-        .getByRole('link', { name: 'New collector', exact: true })
+        .getByRole('link', {
+            name: /New collector|Create your first collector/,
+            exact: true,
+        })
         .click();
     await page.getByRole('radio', { name: 'JSON API', exact: true }).check();
     await page.getByLabel('Source URL').fill('https://example.com/products');
     await page.getByLabel('Collector name').fill('Office supplies');
-    await page
-        .getByRole('button', { name: 'Continue to field mapping' })
-        .click();
+    await page.getByRole('button', { name: 'Choose data' }).click();
     await page.waitForURL(/\/collectors\/\d+\/setup$/);
     return page.url().replace(/\/setup$/, '');
 }
@@ -39,22 +40,25 @@ async function saveAndPreview(
     email: string,
     collectorUrl: string,
 ): Promise<void> {
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await page.getByLabel('Source format').selectOption('json');
     await page.getByLabel('Records path').fill('data.items');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByText('Column options', { exact: true }).first().click();
     await page.getByLabel('Source path or selector').first().fill('name');
-    await page.getByRole('button', { name: 'Run test preview' }).click();
+    await page.getByRole('button', { name: 'Preview data' }).click();
     await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     fixture(email, 'sample');
     await page.goto(collectorUrl);
     await expect(
-        page.getByRole('button', { name: 'Activate setup' }),
+        page.getByRole('button', { name: 'Use this setup' }),
     ).toBeVisible();
 }
 
 for (const [source, label] of [
     ['website', 'Website'],
     ['json', 'JSON API'],
-    ['csv', 'CSV file'],
+    ['csv', 'CSV link'],
     ['xml', 'XML feed'],
 ]) {
     test(`source selection opens and retains a ${source} builder`, async ({
@@ -62,32 +66,30 @@ for (const [source, label] of [
     }, testInfo) => {
         await registerPilot(page, 'redesign');
         await page
-            .getByRole('link', { name: 'New collector', exact: true })
+            .getByRole('link', {
+                name: /New collector|Create your first collector/,
+                exact: true,
+            })
             .click();
         await expect(page.getByRole('radio')).toHaveCount(4);
-        await page
-            .getByRole('button', { name: 'Continue to field mapping' })
-            .click();
-        await expect(page.getByLabel('Collector name')).toBeFocused();
-        await page.getByLabel('Collector name').fill('Office supplies');
-        await page
-            .getByRole('button', { name: 'Continue to field mapping' })
-            .click();
+        await page.getByRole('button', { name: 'Choose data' }).click();
         await expect(page.getByLabel('Source URL')).toBeFocused();
         await page
             .getByLabel('Source URL')
             .fill('https://example.com/products');
+        await expect(page.getByLabel('Collector name')).toHaveValue(
+            'example.com',
+        );
+        await page.getByLabel('Collector name').fill('Office supplies');
         await page.getByRole('radio', { name: label, exact: true }).check();
         await page.screenshot({
             path: testInfo.outputPath('setup.png'),
             fullPage: true,
         });
-        await page
-            .getByRole('button', { name: 'Continue to field mapping' })
-            .click();
+        await page.getByRole('button', { name: 'Choose data' }).click();
         await page.waitForURL(/\/collectors\/\d+\/setup$/);
         await expect(
-            page.getByRole('heading', { name: 'Build your collector' }),
+            page.getByRole('heading', { name: 'Office supplies' }),
         ).toBeVisible();
         await expect(page.getByLabel('Source format')).toHaveValue(source!);
         await page.reload();
@@ -114,13 +116,19 @@ test('manual setup explores a sample and saves corrected source fields', async (
             }),
         });
     });
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await page.getByLabel('Source format').selectOption('json');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('button', { name: 'Load sample' }).click();
-    await expect(page.getByText('Notebook')).toBeVisible();
-    await page.getByRole('button', { name: 'Use path' }).first().click();
+    await expect(
+        page.getByRole('cell', { name: 'Notebook', exact: true }),
+    ).toBeVisible();
+    await page.getByText('Choose a list of items', { exact: true }).click();
+    await page.getByRole('button', { name: 'Selected', exact: true }).click();
     await expect(page.getByLabel('Records path')).toHaveValue('data.items');
-    await page.getByRole('button', { name: 'Add field' }).click();
+    await page.getByRole('button', { name: 'Add column' }).click();
     await page.getByLabel('Column name').last().fill('price');
+    await page.getByText('Column options', { exact: true }).last().click();
     await page.getByLabel('Source path or selector').last().fill('price');
     await page.getByRole('button', { name: 'Save draft' }).click();
     await expect(page.getByLabel('Column name').last()).toHaveValue('price');
@@ -134,7 +142,9 @@ test('CSV headers can be chosen as fields without entering paths', async ({
 }) => {
     await registerPilot(page, 'csv-picker');
     await createCollector(page);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await page.getByLabel('Source format').selectOption('csv');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.route('**/collectors/*/sample', async (route) => {
         await route.fulfill({
             status: 200,
@@ -145,7 +155,12 @@ test('CSV headers can be chosen as fields without entering paths', async ({
         });
     });
     await page.getByRole('button', { name: 'Load sample' }).click();
-    await page.getByRole('button', { name: 'Product name' }).click();
+    await page
+        .getByRole('checkbox', {
+            name: 'Keep Product name column',
+            exact: true,
+        })
+        .check();
     await expect(page.getByLabel('Column name').last()).toHaveValue(
         'Product_name',
     );
@@ -165,10 +180,13 @@ test('CSV headers can be chosen as fields without entering paths', async ({
 for (const source of ['json', 'csv', 'xml']) {
     test(`${source} sample selection extracts real rows through the saved mapping`, async ({
         page,
-    }) => {
+    }, testInfo) => {
         await registerPilot(page, `source-${source}`);
         await page
-            .getByRole('link', { name: 'New collector', exact: true })
+            .getByRole('link', {
+                name: /New collector|Create your first collector/,
+                exact: true,
+            })
             .click();
         await page
             .getByRole('radio', {
@@ -176,7 +194,7 @@ for (const source of ['json', 'csv', 'xml']) {
                     source === 'json'
                         ? 'JSON API'
                         : source === 'csv'
-                          ? 'CSV file'
+                          ? 'CSV link'
                           : 'XML feed',
                 exact: true,
             })
@@ -185,16 +203,11 @@ for (const source of ['json', 'csv', 'xml']) {
         await page
             .getByLabel('Source URL')
             .fill(`https://1.1.1.1/e2e/catalog.${source}`);
-        await page
-            .getByRole('button', { name: 'Continue to field mapping' })
-            .click();
+        await page.getByRole('button', { name: 'Choose data' }).click();
         await page.waitForURL(/\/collectors\/\d+\/setup$/);
         await page.getByRole('button', { name: 'Load sample' }).click();
         if (source !== 'csv')
-            await page
-                .getByRole('button', { name: 'Use path', exact: true })
-                .first()
-                .click();
+            await expect(page.getByLabel('Records path')).not.toHaveValue('');
         const titlePath =
             source === 'json'
                 ? 'details.title'
@@ -202,17 +215,27 @@ for (const source of ['json', 'csv', 'xml']) {
                   ? 'Product name'
                   : './ns:details/ns:title';
         await page
-            .getByRole('button', { name: titlePath, exact: true })
-            .click();
-        await expect(page.getByLabel('Column name')).toHaveCount(1);
-        await page
-            .getByRole('button', {
-                name: source === 'xml' ? './ns:price' : 'price',
+            .getByRole('checkbox', {
+                name: `Keep ${source === 'csv' ? titlePath : 'title'} column`,
                 exact: true,
             })
-            .click();
+            .check();
+        await expect(page.getByLabel('Column name')).toHaveCount(1);
+        await page
+            .getByRole('checkbox', {
+                name: 'Keep price column',
+                exact: true,
+            })
+            .check();
+        await page.getByText('Column options', { exact: true }).last().click();
         await page.getByLabel('Data type').last().selectOption('number');
-        await page.getByRole('button', { name: 'Run test preview' }).click();
+        await page.getByText('Column options', { exact: true }).last().click();
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({
+            path: testInfo.outputPath('selected-columns.png'),
+            fullPage: true,
+        });
+        await page.getByRole('button', { name: 'Preview data' }).click();
         await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
         await expect(
             page.getByRole('cell', { name: 'Notebook', exact: true }),
@@ -227,6 +250,28 @@ for (const source of ['json', 'csv', 'xml']) {
         await expect(
             page.getByRole('link', { name: 'Download CSV', exact: true }),
         ).toBeVisible();
+        await page
+            .getByRole('button', { name: 'Use this setup', exact: true })
+            .click();
+        await page.waitForURL(/\/collectors\/\d+$/);
+        const workspaceUrl = page.url();
+        await page
+            .getByRole('button', { name: 'Collect now', exact: true })
+            .click();
+        await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+        await expect(page.getByRole('status')).toContainText('Complete');
+        const [download] = await Promise.all([
+            page.waitForEvent('download'),
+            page
+                .getByRole('link', { name: 'Download CSV', exact: true })
+                .click(),
+        ]);
+        expect(await download.failure()).toBeNull();
+        await page.goto(workspaceUrl);
+        await page.getByRole('link', { name: 'Schedule', exact: true }).click();
+        await expect(
+            page.getByLabel('Time zone', { exact: true }),
+        ).toBeVisible();
     });
 }
 
@@ -235,6 +280,10 @@ test('saved credentials can be revoked and are removed from setup choices', asyn
 }) => {
     await registerPilot(page, 'credential');
     await createCollector(page);
+    await page
+        .locator('summary')
+        .filter({ hasText: 'Saved credentials' })
+        .click();
     await page.getByLabel('Secret value').fill('example-token');
     await page.getByRole('button', { name: 'Save credentials' }).click();
     await expect(page.getByLabel('Secret value')).toHaveValue('');
@@ -257,6 +306,7 @@ test('the builder exposes source-specific mapping controls', async ({
 }) => {
     await registerPilot(page, 'redesign');
     await createCollector(page);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     const format = page.getByLabel('Source format');
     await format.selectOption('csv');
     await expect(page.getByLabel('Delimiter')).toBeVisible();
@@ -265,6 +315,7 @@ test('the builder exposes source-specific mapping controls', async ({
     await page.getByText('Advanced XML namespaces', { exact: true }).click();
     await expect(page.getByLabel('XML namespaces (JSON object)')).toBeVisible();
     await format.selectOption('website');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(
         page.getByRole('heading', { name: 'Select website content visually' }),
     ).toBeVisible();
@@ -274,9 +325,11 @@ test('the builder exposes source-specific mapping controls', async ({
         .first()
         .click();
     await expect(page.getByLabel('Repeated record selector')).toBeVisible();
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await format.selectOption('json');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(
-        page.getByRole('heading', { name: 'Inspect source data' }),
+        page.getByRole('heading', { name: 'A peek at your source' }),
     ).toBeVisible();
 });
 
@@ -285,7 +338,9 @@ test('challenge screens offer manual page interaction while keeping field select
 }) => {
     await registerPilot(page, 'page-interaction');
     await createCollector(page);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
     await page.getByLabel('Source format').selectOption('website');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
     let challenge = true;
     const clicks: Array<{ action: string; x: number; y: number }> = [];
     const screenshot = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><rect width="1280" height="800" fill="white"/></svg>').toString('base64')}`;
@@ -346,13 +401,14 @@ test('website content can be selected into records and columns without typing se
 }, testInfo) => {
     await registerPilot(page, 'redesign');
     await page
-        .getByRole('link', { name: 'New collector', exact: true })
+        .getByRole('link', {
+            name: /New collector|Create your first collector/,
+            exact: true,
+        })
         .click();
     await page.getByLabel('Collector name').fill('Visual catalog');
     await page.getByLabel('Source URL').fill('https://example.com/catalog');
-    await page
-        .getByRole('button', { name: 'Continue to field mapping' })
-        .click();
+    await page.getByRole('button', { name: 'Choose data' }).click();
     await page.waitForURL(/\/collectors\/\d+\/setup$/);
 
     const screenshot = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800"><rect width="1280" height="800" fill="white"/><text x="60" y="100">Notebook $12</text></svg>').toString('base64')}`;
@@ -438,7 +494,7 @@ test('website content can be selected into records and columns without typing se
     });
 
     await expect(
-        page.getByRole('button', { name: 'Run test preview' }),
+        page.getByRole('button', { name: 'Preview data' }),
     ).toBeDisabled();
     await page.getByRole('button', { name: 'Open page' }).click();
     const preview = page.getByRole('button', {
@@ -460,12 +516,12 @@ test('website content can be selected into records and columns without typing se
     ).toBeVisible();
     await preview.click({ position: { x: 80, y: 80 } });
     await page.getByRole('button', { name: 'Add as column' }).last().click();
-    await expect(
-        page.getByText('span.price', { exact: true }).last(),
-    ).toBeVisible();
+    await expect(page.getByLabel('Source path or selector').last()).toHaveValue(
+        'span.price',
+    );
     await expect(page.getByLabel('Column name').first()).toHaveValue('price');
     await expect(
-        page.getByRole('button', { name: 'Run test preview' }),
+        page.getByRole('button', { name: 'Preview data' }),
     ).toBeEnabled();
     const login = page.locator('details').filter({
         has: page.getByText('Login to a source site', { exact: true }),
@@ -489,6 +545,7 @@ test('website content can be selected into records and columns without typing se
     await preview.click({ position: { x: 80, y: 200 } });
     await page.getByRole('button', { name: 'Use as detail link' }).click();
     await expect(detail.getByText('a.product-link')).toBeVisible();
+    await page.getByText('More pages', { exact: true }).click();
     await page.getByLabel('How to continue').selectOption('next_page');
     await page
         .getByRole('button', { name: 'Pick from screenshot' })
@@ -542,8 +599,8 @@ test('collectors can be searched and a queued collection can be stopped', async 
     ).toBeVisible();
     await page.goto(`${collectorUrl}/setup`);
     await saveAndPreview(page, email, collectorUrl);
-    await page.getByRole('button', { name: 'Activate setup' }).click();
-    await page.getByRole('button', { name: 'Collect data' }).click();
+    await page.getByRole('button', { name: 'Use this setup' }).click();
+    await page.getByRole('button', { name: 'Collect now' }).click();
     await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     await page.getByRole('button', { name: 'Stop collection' }).click();
     await expect(page.getByText('Collection stopped')).toBeVisible();
@@ -555,14 +612,18 @@ test('manual collector preview, activation, schedule, and results are separate s
     const email = await registerPilot(page, 'redesign');
     const collectorUrl = await createCollector(page);
     await saveAndPreview(page, email, collectorUrl);
-    await page.getByRole('button', { name: 'Activate setup' }).click();
+    await page.getByRole('button', { name: 'Use this setup' }).click();
     await expect(
-        page.getByRole('button', { name: 'Collect data' }),
+        page.getByRole('button', { name: 'Collect now' }),
     ).toBeVisible();
     await page.screenshot({
         path: testInfo.outputPath('recipe.png'),
         fullPage: true,
     });
+    await page
+        .getByRole('link', { name: 'Schedule', exact: true })
+        .first()
+        .click();
     await page.getByLabel('Repeat').selectOption('daily');
     await page.getByLabel('Time zone').fill('Europe/Prague');
     await page.getByLabel('Local time').fill('09:30');
@@ -590,7 +651,8 @@ test('manual collector preview, activation, schedule, and results are separate s
     await notifications.check();
     await page.reload();
     await expect(notifications).toBeChecked();
-    await page.getByRole('button', { name: 'Collect data' }).click();
+    await page.getByRole('link', { name: 'Overview', exact: true }).click();
+    await page.getByRole('button', { name: 'Collect now' }).click();
     await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     fixture(email, 'complete');
     await page.reload();
@@ -602,6 +664,7 @@ test('manual collector preview, activation, schedule, and results are separate s
     expect((await downloadPromise).suggestedFilename()).toMatch(
         /^dataset-.*\.csv$/,
     );
+    await page.getByText('More download options', { exact: true }).click();
     const jsonDownload = page.waitForEvent('download');
     await page.getByRole('link', { name: 'Download JSON' }).click();
     expect((await jsonDownload).suggestedFilename()).toMatch(
@@ -645,7 +708,7 @@ test('empty, failed, and stopped collections remain understandable on mobile', a
     const email = await registerPilot(page, 'redesign');
     const collectorUrl = await createCollector(page);
     await saveAndPreview(page, email, collectorUrl);
-    await page.getByRole('button', { name: 'Activate setup' }).click();
+    await page.getByRole('button', { name: 'Use this setup' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     fixture(email, 'long');
     await page.reload();
@@ -658,6 +721,8 @@ test('empty, failed, and stopped collections remain understandable on mobile', a
         ['failed', 'Collection could not finish'],
         ['cancelled', 'Collection stopped'],
         ['empty', 'No data was found'],
+        ['queued', 'Your data will appear here'],
+        ['running', 'Gathering your data'],
     ]) {
         const id = fixture(email, state);
         await page.goto(`/runs/${id}`);
@@ -675,8 +740,442 @@ test('empty, failed, and stopped collections remain understandable on mobile', a
             fullPage: true,
         });
     }
+    const partialId = fixture(email, 'partial');
+    await page.goto(`/runs/${partialId}`);
+    await expect(
+        page.getByRole('cell', { name: 'Notebook', exact: true }),
+    ).toBeVisible();
+    await expect(
+        page.getByText('Collection incomplete', { exact: false }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole('link', { name: 'Download CSV', exact: true }),
+    ).toHaveCount(0);
     await page.goto(collectorUrl);
     await expect(
-        page.getByRole('button', { name: 'Collect data' }),
+        page.getByRole('button', { name: 'Collect now' }),
     ).toBeVisible();
+});
+
+test('guided draft edits survive step navigation, warn before leaving, and restore after saving', async ({
+    page,
+}) => {
+    await registerPilot(page, 'draft-guard');
+    await createCollector(page);
+    await page.getByLabel('Column name').fill('product');
+    await expect(page.getByRole('status')).toHaveText('Unsaved changes');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByLabel('Source format')).toBeVisible();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByLabel('Column name')).toHaveValue('product');
+    const dialog = page.waitForEvent('dialog');
+    const navigate = page
+        .getByRole('link', { name: 'Activity', exact: true })
+        .click();
+    const prompt = await dialog;
+    expect(prompt.message()).toContain('without saving');
+    await prompt.dismiss();
+    await navigate;
+    await expect(page).toHaveURL(/\/setup$/);
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('Draft saved');
+    await page.reload();
+    await expect(page.getByLabel('Column name')).toHaveValue('product');
+});
+
+test('preview activation is explicit and an edited draft cannot reuse a stale preview', async ({
+    page,
+}) => {
+    const email = await registerPilot(page, 'preview-state');
+    const collectorUrl = await createCollector(page);
+    await saveAndPreview(page, email, collectorUrl);
+    await page.getByRole('link', { name: 'View sample', exact: true }).click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    const sampleUrl = page.url();
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole('link', { name: 'Edit selection', exact: true })
+        .click();
+    await page.getByLabel('Column name').fill('renamed');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('Draft saved');
+    await page.goto(sampleUrl);
+    await expect(
+        page.getByText('Your draft has changed since this preview.', {
+            exact: false,
+        }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toHaveCount(0);
+    await page.goto(collectorUrl);
+    await expect(
+        page.getByRole('button', { name: 'Collect now', exact: true }),
+    ).toHaveCount(0);
+});
+
+test('pastel workspace stays usable across screen sizes and top navigation stays visible', async ({
+    page,
+}, testInfo) => {
+    await registerPilot(page, 'responsive');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(page.locator('.button').first()).toHaveCSS(
+        'transition-duration',
+        '0s',
+    );
+    for (const width of [390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(
+            page.getByRole('link', {
+                name: 'Create your first collector',
+                exact: true,
+            }),
+        ).toBeVisible();
+        expect(
+            await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+        ).toBe(true);
+        await page.screenshot({
+            path: testInfo.outputPath(`home-${width}.png`),
+            fullPage: true,
+        });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    const navigation = page.getByRole('navigation', {
+        name: 'Main navigation',
+        exact: true,
+    });
+    await expect(
+        navigation.getByRole('link', { name: 'Data collectors', exact: true }),
+    ).toBeVisible();
+    await expect(
+        navigation.getByRole('link', { name: 'Activity', exact: true }),
+    ).toBeVisible();
+    const menu = page.getByRole('button', { name: 'Account', exact: true });
+    await menu.click();
+    await expect(menu).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Tab');
+    await expect(
+        page.getByRole('link', { name: 'Settings', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(
+        page.getByRole('button', { name: 'Log out', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toBeFocused();
+    await menu.click();
+    await page
+        .getByRole('heading', {
+            name: 'Meet your first collector',
+            exact: true,
+        })
+        .click();
+    await expect(menu).toHaveAttribute('aria-expanded', 'false');
+    await page
+        .getByRole('link', { name: 'Create your first collector', exact: true })
+        .click();
+    await page.getByLabel('Source URL').fill('https://www.example.com/catalog');
+    await expect(page.getByLabel('Collector name')).toHaveValue('example.com');
+    await page.getByLabel('Collector name').fill('My own name');
+    await page
+        .getByLabel('Source URL')
+        .fill('https://another.example.com/catalog');
+    await expect(page.getByLabel('Collector name')).toHaveValue('My own name');
+    for (const width of [390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(
+            await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+        ).toBe(true);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({
+            path: testInfo.outputPath(`create-${width}.png`),
+            fullPage: true,
+        });
+    }
+});
+
+test('a queued preview becomes activatable without reloading and activation does not start a collection', async ({
+    page,
+}) => {
+    const email = await registerPilot(page, 'preview-live');
+    await createCollector(page);
+    await page
+        .getByRole('button', { name: 'Preview data', exact: true })
+        .click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toHaveCount(0);
+    fixture(email, 'sample');
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toBeVisible({ timeout: 15000 });
+    await page
+        .getByRole('button', { name: 'Use this setup', exact: true })
+        .click();
+    await page.waitForURL(/\/collectors\/\d+$/);
+    await expect(
+        page.getByRole('heading', {
+            name: 'Your collector is ready!',
+            exact: true,
+        }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole('button', { name: 'Collect now', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('link', { name: 'History', exact: true }).click();
+    await expect(
+        page.getByText('Full collection', { exact: true }),
+    ).toHaveCount(0);
+});
+
+test('Czech and Slovak workspaces preserve layout and readable navigation', async ({
+    page,
+}, testInfo) => {
+    await registerPilot(page, 'locale-layout');
+    for (const locale of ['cs', 'sk']) {
+        await page.goto('/settings');
+        await page.locator('#locale').selectOption(locale);
+        await page
+            .locator('form')
+            .filter({ has: page.locator('#email') })
+            .getByRole('button', {
+                name: /Save profile|Uložit profil|Uložiť profil/,
+            })
+            .click();
+        await page.goto('/collectors');
+        for (const width of [390, 768, 1440]) {
+            await page.setViewportSize({ width, height: 900 });
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth,
+                ),
+            ).toBe(true);
+            await expect(page.locator('html')).toHaveAttribute('lang', locale);
+            await page.screenshot({
+                path: testInfo.outputPath(`${locale}-${width}.png`),
+                fullPage: true,
+            });
+        }
+        await page.goto('/collectors/create');
+        await page.locator('#start_url').fill('https://example.com/catalog');
+        for (const width of [390, 768, 1440]) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.evaluate(() => window.scrollTo(0, 0));
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth,
+                ),
+            ).toBe(true);
+            await page.screenshot({
+                path: testInfo.outputPath(`${locale}-source-${width}.png`),
+                fullPage: true,
+            });
+        }
+        await page.locator('form button[type="submit"]').click();
+        await page.waitForURL(/\/collectors\/\d+\/setup$/);
+        for (const width of [390, 768, 1440]) {
+            await page.setViewportSize({ width, height: 900 });
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth,
+                ),
+            ).toBe(true);
+            await page.screenshot({
+                path: testInfo.outputPath(`${locale}-builder-${width}.png`),
+                fullPage: true,
+            });
+        }
+    }
+});
+
+test('save errors reveal the source step and preserve the entered draft', async ({
+    page,
+}, testInfo) => {
+    await registerPilot(page, 'save-error');
+    await createCollector(page);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await page.getByLabel('Source URL').fill('not-a-url');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('URL');
+    await expect(page.getByLabel('Source URL')).toBeVisible();
+    await expect(page.getByLabel('Source URL')).toHaveValue('not-a-url');
+    await expect(page.getByRole('status')).toContainText('Could not save');
+    await page.getByLabel('Source URL').fill('https://example.com/fixed');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('Draft saved');
+    await page.reload();
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(page.getByLabel('Source URL')).toHaveValue(
+        'https://example.com/fixed',
+    );
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    for (const width of [390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(
+            await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+        ).toBe(true);
+        await page.screenshot({
+            path: testInfo.outputPath(`builder-${width}.png`),
+            fullPage: true,
+        });
+    }
+    await page.goto('/collectors');
+    for (const width of [390, 768, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(
+            await page.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+        ).toBe(true);
+        await page.screenshot({
+            path: testInfo.outputPath(`collectors-${width}.png`),
+            fullPage: true,
+        });
+    }
+});
+
+test('a failed preview can be corrected with sample selection and tested again', async ({
+    page,
+}) => {
+    const email = await registerPilot(page, 'preview-retry');
+    await createCollector(page);
+    await page
+        .getByRole('button', { name: 'Preview data', exact: true })
+        .click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    fixture(email, 'preview_failed');
+    await page.reload();
+    await expect(page.getByRole('status')).toContainText('Needs attention');
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toHaveCount(0);
+    await page
+        .getByRole('link', { name: 'Edit selection', exact: true })
+        .first()
+        .click();
+    await page.route('**/collectors/*/sample', (route) =>
+        route.fulfill({ json: { sample: [{ title: 'Notebook' }] } }),
+    );
+    await page
+        .getByRole('button', { name: 'Load sample', exact: true })
+        .click();
+    await page
+        .getByRole('checkbox', { name: 'Keep title column', exact: true })
+        .check();
+    await page
+        .getByRole('button', { name: 'Preview data', exact: true })
+        .click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    fixture(email, 'sample');
+    await expect(
+        page.getByRole('cell', { name: 'Notebook', exact: true }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+        page.getByRole('button', { name: 'Use this setup', exact: true }),
+    ).toBeVisible();
+});
+
+test('changing the source clears the previous sample before choosing new data', async ({
+    page,
+}) => {
+    await registerPilot(page, 'sample-source');
+    await createCollector(page);
+    await page.route('**/collectors/*/sample', (route) =>
+        route.fulfill({ json: { sample: [{ name: 'Original source' }] } }),
+    );
+    await page
+        .getByRole('button', { name: 'Load sample', exact: true })
+        .click();
+    await expect(
+        page.getByRole('cell', { name: 'Original source', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await page
+        .getByLabel('Source URL')
+        .fill('https://example.com/another-source');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(
+        page.getByRole('cell', { name: 'Original source', exact: true }),
+    ).toHaveCount(0);
+    await expect(
+        page.getByText('Let’s take a look at your data', { exact: true }),
+    ).toBeVisible();
+});
+
+test('unsaved setup survives cancelling browser Back and logout', async ({
+    page,
+}) => {
+    await registerPilot(page, 'history-draft');
+    await createCollector(page);
+    const setupUrl = page.url();
+    await page.getByLabel('Column name').fill('unsaved_column');
+    const backDialog = page.waitForEvent('dialog');
+    await page.evaluate(() => window.history.back());
+    await (await backDialog).dismiss();
+    await expect(page).toHaveURL(setupUrl);
+    await expect(page.getByLabel('Column name')).toHaveValue('unsaved_column');
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
+    const logoutDialog = page.waitForEvent('dialog');
+    const logout = page
+        .getByRole('button', { name: 'Log out', exact: true })
+        .click();
+    await (await logoutDialog).dismiss();
+    await logout;
+    await expect(
+        page.getByRole('button', { name: 'Log out', exact: true }),
+    ).toBeEnabled();
+    await expect(page).toHaveURL(setupUrl);
+    await expect(page.getByLabel('Column name')).toHaveValue('unsaved_column');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('Draft saved');
+    await page.goBack();
+    await expect(page).not.toHaveURL(setupUrl);
+});
+
+test('setup steps retain edits and preview links return to the correct step', async ({
+    page,
+}) => {
+    const email = await registerPilot(page, 'step-navigation');
+    const collectorUrl = await createCollector(page);
+    await page.getByLabel('Column name').fill('Product');
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await page.getByLabel('Source URL').fill('https://example.com/catalog');
+    await page
+        .getByRole('button', { name: 'Choose data', exact: true })
+        .click();
+    await expect(page.getByLabel('Column name')).toHaveValue('Product');
+    await expect(
+        page.getByRole('button', { name: 'Preview', exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(page.getByLabel('Source URL')).toHaveValue(
+        'https://example.com/catalog',
+    );
+    await page
+        .getByRole('button', { name: 'Choose data', exact: true })
+        .click();
+    await saveAndPreview(page, email, collectorUrl);
+    await page.getByRole('link', { name: 'View sample', exact: true }).click();
+    await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
+    const previewUrl = page.url();
+    await page.getByRole('link', { name: 'Source', exact: true }).click();
+    await expect(page.getByLabel('Source URL')).toBeVisible();
+    await expect(page.getByLabel('Source URL')).toHaveValue(
+        'https://example.com/catalog',
+    );
+    await page.goto(previewUrl);
+    await page.getByRole('link', { name: 'Choose data', exact: true }).click();
+    await expect(page.getByLabel('Column name')).toBeVisible();
+    await expect(page.getByLabel('Column name')).toHaveValue('Product');
 });

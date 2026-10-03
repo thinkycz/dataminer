@@ -40,9 +40,7 @@ const localeOptions = computed(() =>
                 </p>
             </header>
 
-            <section
-                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6"
-            >
+            <section class="panel p-6 sm:p-8">
                 <h2
                     class="font-heading mb-4 text-lg font-semibold text-on-surface"
                 >
@@ -88,7 +86,13 @@ const localeOptions = computed(() =>
                         </Link>
                     </div>
 
-                    <div class="space-y-2">
+                    <div class="space-y-2 border-t border-outline-glass pt-5">
+                        <h3 class="text-lg font-semibold">
+                            {{ t('redesign.language') }}
+                        </h3>
+                        <p class="pb-2 text-sm text-on-surface-variant">
+                            {{ t('redesign.language_help') }}
+                        </p>
                         <Label for="locale">{{ t('fields.locale') }}</Label>
                         <Select
                             id="locale"
@@ -119,13 +123,11 @@ const localeOptions = computed(() =>
                 </WebForm>
             </section>
 
-            <section
-                class="rounded-2xl border border-outline-glass bg-surface-container-lowest p-6"
-            >
+            <section class="panel p-6 sm:p-8">
                 <h2
                     class="font-heading mb-4 text-lg font-semibold text-on-surface"
                 >
-                    {{ t('settings.password.title') }}
+                    {{ t('redesign.security') }}
                 </h2>
                 <WebForm
                     v-slot="{ errors, processing }"

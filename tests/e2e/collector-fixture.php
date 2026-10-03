@@ -29,18 +29,22 @@ $recipe = Recipe::query()->where('user_id', $user->getKey())->latest()->firstOrF
 $mode = $argv[2];
 $version = $recipe->versions()->getQuery()->latest('version')->firstOrFail();
 
-if ($mode === 'sample') {
+if ($mode === 'preview_failed') {
+    $run = $version->runs()->getQuery()->where('kind', ScrapeRun::KIND_TEST)->latest()->firstOrFail();
+    $version->update(['status' => RecipeVersion::STATUS_DRAFT]);
+    $run->update(['status' => ScrapeRun::STATUS_FAILED, 'error' => 'Source temporarily unavailable.', 'finished_at' => \now()]);
+} elseif ($mode === 'sample') {
     $run = $version->runs()->getQuery()->where('kind', ScrapeRun::KIND_TEST)->latest()->firstOrFail();
     $version->update(['status' => RecipeVersion::STATUS_TESTED, 'test_summary' => ['row_count' => 1]]);
     $run->update(['status' => ScrapeRun::STATUS_COMPLETED, 'progress' => 100, 'row_count' => 1, 'complete' => true, 'finished_at' => \now()]);
 } elseif ($mode === 'complete') {
     $run = $recipe->runs()->getQuery()->where('kind', ScrapeRun::KIND_FULL)->latest()->firstOrFail();
     $run->update(['status' => ScrapeRun::STATUS_COMPLETED, 'progress' => 100, 'row_count' => 1, 'complete' => true, 'finished_at' => \now()]);
-} elseif (\in_array($mode, ['failed', 'cancelled', 'empty'], true)) {
+} elseif (\in_array($mode, ['failed', 'cancelled', 'empty', 'queued', 'running', 'partial'], true)) {
     $run = ScrapeRunFactory::new()->createOne([
         'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey(), 'user_id' => $user->getKey(),
-        'kind' => ScrapeRun::KIND_FULL, 'status' => $mode === 'empty' ? ScrapeRun::STATUS_COMPLETED : $mode,
-        'complete' => $mode === 'empty', 'finished_at' => \now(),
+        'kind' => ScrapeRun::KIND_FULL, 'status' => \in_array($mode, ['empty', 'partial'], true) ? ScrapeRun::STATUS_COMPLETED : $mode,
+        'complete' => $mode === 'empty', 'finished_at' => \in_array($mode, ['queued', 'running'], true) ? null : \now(),
     ]);
 } elseif ($mode === 'long') {
     $recipe->update(['name' => \str_repeat('Long collector name ', 10), 'start_url' => 'https://example.com/' . \str_repeat('long-path-', 35)]);
@@ -49,10 +53,15 @@ if ($mode === 'sample') {
     throw new RuntimeException('Unsupported fixture mode.');
 }
 
-if (\in_array($mode, ['sample', 'complete'], true)) {
+if (\in_array($mode, ['sample', 'complete', 'partial'], true)) {
     ScrapeRunColumn::query()->create(['run_id' => $run->getId(), 'key' => 'name', 'label' => 'Name', 'type' => 'string', 'position' => 0]);
     ScrapeRunColumn::query()->create(['run_id' => $run->getId(), 'key' => 'price', 'label' => 'Price', 'type' => 'number', 'position' => 1]);
     ScrapeRow::query()->create(['run_id' => $run->getId(), 'sequence' => 1, 'payload' => ['name' => 'Notebook', 'price' => 12]]);
+    if ($mode === 'partial') {
+        $run->update(['row_count' => 1]);
+        echo $run->getId();
+        exit;
+    }
     $path = 'redesign-fixtures/' . $run->getId();
     Resolver::resolveFilesystemManager()->disk('local')->put($path . '.csv', "name,price\nNotebook,12\n");
     Resolver::resolveFilesystemManager()->disk('local')->put($path . '.json', '[{"name":"Notebook","price":12}]');

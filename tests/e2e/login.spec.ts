@@ -17,6 +17,9 @@ test.describe('Full user journey', () => {
 
         await page.waitForURL(/\/settings$/);
 
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await page.getByRole('button', { name: 'Log out' }).click();
         await page.waitForURL(/\/login|\/$/);
     });

@@ -32,6 +32,9 @@ test.describe('Email verification', () => {
         page,
     }) => {
         const email = await registerPilot(page, 'verify-link');
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await page.getByRole('link', { name: 'Settings', exact: true }).click();
         await page
             .getByRole('link', { name: 'Verify email', exact: true })

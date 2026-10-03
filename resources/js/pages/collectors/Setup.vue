@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
 import type { FormDataConvertible } from '@inertiajs/core';
-import { computed, reactive, ref, toRaw } from 'vue';
+import { computed, reactive, ref, toRaw, nextTick, watch } from 'vue';
 import { ScanSearch } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
+import { useSourceSample } from '@/composables/useSourceSample';
+import SourceSampleTable from '@/components/ui/SourceSampleTable.vue';
+import WorkflowSteps from '@/components/ui/WorkflowSteps.vue';
+import CollectorFieldEditor from '@/components/ui/CollectorFieldEditor.vue';
+import { useDraftGuard } from '@/composables/useDraftGuard';
+import { usePage } from '@inertiajs/vue3';
 import PageHeader from '@/components/ui/PageHeader.vue';
 import Button from '@/components/ui/Button.vue';
 import Input from '@/components/ui/Input.vue';
@@ -37,6 +43,7 @@ type PickMode = 'records' | 'fields' | 'login' | 'detail' | 'pagination';
 const pickMode = ref<PickMode>('records');
 const sampleData = ref<unknown>(null);
 const sampleError = ref('');
+const sampleLoading = ref(false);
 const definitionError = ref('');
 const browserError = ref('');
 const browserBusy = ref(false);
@@ -237,208 +244,19 @@ const canPreview = computed(
                     !(field.name === 'name' && field.path === 'name'),
             )),
 );
-function parseXmlSample(): Document | null {
-    if (
-        form.source_type !== 'xml' ||
-        typeof sampleData.value !== 'string' ||
-        /<!\s*(?:DOCTYPE|ENTITY)/i.test(sampleData.value)
-    )
-        return null;
-    const document = new DOMParser().parseFromString(
-        sampleData.value,
-        'application/xml',
-    );
-    return document.querySelector('parsererror') ? null : document;
-}
-function discoverXmlNamespaces(document: Document): void {
-    const namespaces = { ...(form.xml?.namespaces as Record<string, string>) };
-    for (const element of document.getElementsByTagName('*')) {
-        for (const node of [element, ...element.attributes]) {
-            const uri = node.namespaceURI;
-            if (
-                !uri ||
-                uri === 'http://www.w3.org/2000/xmlns/' ||
-                Object.values(namespaces).includes(uri)
-            )
-                continue;
-            const base = node.prefix || 'ns';
-            let prefix = base;
-            for (let suffix = 2; namespaces[prefix]; suffix++)
-                prefix = `${base}${suffix}`;
-            namespaces[prefix] = uri;
-        }
-    }
-    form.xml = { ...form.xml, namespaces };
-}
-function xmlNodeName(node: Element | Attr): string {
-    const prefix = Object.entries(form.xml?.namespaces ?? {}).find(
-        ([, uri]) => uri === node.namespaceURI,
-    )?.[0];
-    return prefix ? `${prefix}:${node.localName}` : node.localName;
-}
-const sampleRecordsPaths = computed(() => {
-    if (form.source_type === 'xml') {
-        const document = parseXmlSample();
-        if (!document?.documentElement) return [];
-        const paths: string[] = [];
-        const singleRecords: string[] = [];
-        const visit = (element: Element, path: string, depth: number): void => {
-            if (depth > 10) return;
-            const children = [...element.children];
-            for (const child of children) {
-                const childPath = `${path}/${xmlNodeName(child)}`;
-                if (
-                    children.filter(
-                        (item) =>
-                            item.localName === child.localName &&
-                            item.namespaceURI === child.namespaceURI,
-                    ).length > 1
-                )
-                    paths.push(childPath);
-                if (child.children.length || child.attributes.length)
-                    singleRecords.push(childPath);
-                visit(child, childPath, depth + 1);
-            }
-        };
-        const root = document.documentElement;
-        visit(root, `/${xmlNodeName(root)}`, 0);
-        return [
-            ...new Set(
-                paths.length
-                    ? paths
-                    : [...singleRecords, `/${xmlNodeName(root)}`],
-            ),
-        ];
-    }
-    const paths: string[] = [];
-    const visit = (value: unknown, path: string, depth: number): void => {
-        if (depth > 4 || value === null || typeof value !== 'object') return;
-        if (Array.isArray(value)) {
-            if (
-                value.length &&
-                typeof value[0] === 'object' &&
-                value[0] !== null &&
-                !Array.isArray(value[0])
-            )
-                paths.push(path);
-            return;
-        }
-        for (const [key, child] of Object.entries(value))
-            visit(child, path ? `${path}.${key}` : key, depth + 1);
-    };
-    visit(sampleData.value, '', 0);
-    return paths;
-});
-function csvHeaders(sample: string, delimiter: string): string[] {
-    if (delimiter.length !== 1) return [];
-    const headers: string[] = [];
-    let value = '';
-    let quoted = false;
-    let ended = false;
-    for (let index = 0; index < Math.min(sample.length, 50_000); index++) {
-        const character = sample[index];
-        if (character === '"') {
-            if (quoted && sample[index + 1] === '"') {
-                value += '"';
-                index++;
-            } else quoted = !quoted;
-        } else if (character === delimiter && !quoted) {
-            headers.push(value.trim());
-            value = '';
-        } else if ((character === '\n' || character === '\r') && !quoted) {
-            headers.push(value.trim());
-            ended = true;
-            break;
-        } else value += character;
-    }
-    if (!ended) headers.push(value.trim());
-    return headers
-        .map((header) => header.replace(/^\uFEFF/, ''))
-        .filter(Boolean);
-}
-const sampleFieldPaths = computed(() => {
-    if (form.source_type === 'csv')
-        return typeof sampleData.value === 'string'
-            ? csvHeaders(sampleData.value, String(form.csv?.delimiter ?? ','))
-            : [];
-    if (form.source_type === 'xml') {
-        const document = parseXmlSample();
-        if (!document) return [];
-        try {
-            const namespaces = (form.xml?.namespaces ?? {}) as Record<
-                string,
-                string
-            >;
-            const resolver = (prefix: string | null): string | null =>
-                prefix ? (namespaces[prefix] ?? null) : null;
-            const records = document.evaluate(
-                form.records_path ||
-                    `/${xmlNodeName(document.documentElement)}`,
-                document,
-                resolver,
-                XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-                null,
-            );
-            const record = records.snapshotItem(0);
-            if (!(record instanceof Element)) return [];
-            const paths: string[] = [];
-            const visit = (
-                element: Element,
-                path: string,
-                depth: number,
-            ): void => {
-                if (depth > 10) return;
-                for (const attribute of element.attributes) {
-                    if (
-                        attribute.namespaceURI !==
-                        'http://www.w3.org/2000/xmlns/'
-                    )
-                        paths.push(`${path}/@${xmlNodeName(attribute)}`);
-                }
-                for (const child of element.children) {
-                    const childPath = `${path}/${xmlNodeName(child)}`;
-                    if (!child.children.length) paths.push(childPath);
-                    visit(child, childPath, depth + 1);
-                }
-            };
-            visit(record, '.', 0);
-            return [...new Set(paths)];
-        } catch {
-            return [];
-        }
-    }
-    if (!sampleData.value || typeof sampleData.value !== 'object') return [];
-    let record: unknown = sampleData.value;
-    for (const segment of form.records_path
-        .replace(/^\$\.?/, '')
-        .replace(/\[(\d+)\]/g, '.$1')
-        .split('.')
-        .filter(Boolean)) {
-        if (record === null || typeof record !== 'object') return [];
-        record = (record as Record<string, unknown>)[segment];
-    }
-    const paths: string[] = [];
-    const visit = (value: unknown, path: string, depth: number): void => {
-        if (depth > 10) return;
-        if (value === null || typeof value !== 'object') {
-            if (path) paths.push(path);
-        } else if (Array.isArray(value)) {
-            value
-                .slice(0, 3)
-                .forEach((child, index) =>
-                    visit(child, `${path}[${index}]`, depth + 1),
-                );
-        } else {
-            for (const [key, child] of Object.entries(value)) {
-                if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key))
-                    visit(child, path ? `${path}.${key}` : key, depth + 1);
-            }
-        }
-    };
-    for (const row of Array.isArray(record) ? record.slice(0, 20) : [record])
-        visit(row, '', 0);
-    return [...new Set(paths)];
-});
+watch(
+    () => [form.url, form.source_type],
+    () => {
+        sampleData.value = null;
+        sampleError.value = '';
+    },
+);
+const {
+    sampleRecordsPaths,
+    sampleFieldPaths,
+    parseXmlSample,
+    discoverXmlNamespaces,
+} = useSourceSample(form, sampleData);
 const paginationKeys = computed(() => {
     const map: Record<string, string[]> = {
         page: ['page_param', 'start', 'step'],
@@ -523,6 +341,40 @@ function setBooleanMap(
         .map((item) => item.trim())
         .filter(Boolean);
 }
+const page = usePage();
+const step = ref(
+    new URLSearchParams(page.url.split('?')[1]).get('step') === 'source'
+        ? 0
+        : 1,
+);
+const { dirty, saveFailed, markSaved } = useDraftGuard(() =>
+    JSON.stringify(serializableDefinition()),
+);
+async function revealErrors(): Promise<void> {
+    saveFailed.value = true;
+    const messages = Object.values(page.props.errors).join(' ');
+    step.value =
+        page.props.errors.url ||
+        page.props.errors.source_type ||
+        /\bURL\b|source type|connection ID|records path|CSV settings|XML namespace/i.test(
+            messages,
+        )
+            ? 0
+            : 1;
+    await nextTick();
+    document
+        .querySelectorAll<HTMLDetailsElement>('#collector-builder details')
+        .forEach((detail) => {
+            detail.open = true;
+        });
+    document.querySelector<HTMLElement>('#builder-errors')?.focus();
+}
+watch(
+    () => page.props.errors,
+    (errors) => {
+        if (Object.keys(errors).length) void revealErrors();
+    },
+);
 function postSetup(): void {
     if (processing.value) return;
     processing.value = true;
@@ -534,6 +386,10 @@ function postSetup(): void {
         },
         {
             preserveScroll: true,
+            onSuccess: () => markSaved(),
+            onError: () => {
+                void revealErrors();
+            },
             onFinish: () => {
                 processing.value = false;
             },
@@ -552,6 +408,7 @@ function openWebsite(): void {
         {
             preserveScroll: true,
             onSuccess: () => {
+                markSaved();
                 void browserAction('open');
             },
             onFinish: () => {
@@ -593,6 +450,7 @@ async function activatePreview(): Promise<void> {
         {
             preserveScroll: true,
             onSuccess: () => {
+                markSaved();
                 router.post(
                     `/collectors/${props.recipe.id}/preview`,
                     {},
@@ -605,6 +463,7 @@ async function activatePreview(): Promise<void> {
             },
             onError: () => {
                 processing.value = false;
+                void revealErrors();
             },
         },
     );
@@ -639,25 +498,42 @@ async function jsonPost(
     return body;
 }
 async function loadSample(): Promise<void> {
+    if (sampleLoading.value) return;
+    sampleLoading.value = true;
     sampleError.value = '';
+    const sourceUrl = form.url;
+    const sourceType = form.source_type;
     try {
         const body = await jsonPost(`/collectors/${props.recipe.id}/sample`, {
             url: form.url,
         });
-        if (body) {
+        if (body && form.url === sourceUrl && form.source_type === sourceType) {
             sampleData.value = body.sample ?? body.data ?? body;
             const document = parseXmlSample();
             if (document) discoverXmlNamespaces(document);
+            if (!form.records_path && sampleRecordsPaths.value.length === 1)
+                form.records_path = sampleRecordsPaths.value[0]!;
         }
     } catch (error) {
         sampleError.value =
             error instanceof Error
                 ? error.message
                 : t('builder.request_failed');
+    } finally {
+        sampleLoading.value = false;
     }
 }
 function pickSamplePath(path: string): void {
     form.records_path = path;
+}
+function toggleSampleColumn(path: string): void {
+    const index = form.fields.findIndex((field) => field.path === path);
+    if (index >= 0) {
+        if (form.fields.length > 1) removeField(index);
+    } else {
+        selected.value = '';
+        useSampleField(path);
+    }
 }
 function useSampleField(path: string): void {
     const field = form.fields.find((item) => item.name === selected.value);
@@ -961,1349 +837,1362 @@ function setPickMode(mode: PickMode): void {
 
 <template>
     <AppLayout :title="t('builder.title')">
-        <div class="mx-auto max-w-5xl">
-            <Link
-                :href="`/collectors/${recipe.id}`"
-                class="text-link mb-6 inline-block"
-                >← {{ t('recipes.back') }}</Link
-            >
+        <div id="collector-builder" class="mx-auto max-w-6xl">
+            <div class="mb-5 flex items-center justify-between gap-3">
+                <Link :href="`/collectors/${recipe.id}`" class="text-link"
+                    >← {{ t('redesign.back_to_collector') }}</Link
+                >
+            </div>
             <PageHeader
-                :title="t('builder.title')"
-                :description="t('builder.help')"
+                :title="recipe.name"
+                :description="
+                    t(
+                        step === 0
+                            ? 'redesign.source_help'
+                            : 'redesign.choose_help',
+                    )
+                "
             />
-            <ActionErrors />
-            <section class="panel mb-6 space-y-5 p-5 sm:p-7">
-                <h2 class="text-xl font-semibold">{{ t('builder.source') }}</h2>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <Label for="source_type">{{
-                            t('builder.source_type')
-                        }}</Label
-                        ><select
-                            id="source_type"
-                            v-model="form.source_type"
-                            @change="
-                                changeSource(
-                                    ($event.target as HTMLSelectElement).value,
-                                )
-                            "
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
-                        >
-                            <option
-                                v-for="type in sourceOptions"
-                                :key="type"
-                                :value="type"
-                            >
-                                {{ t(`builder.${type}`) }}
-                            </option>
-                        </select>
-                    </div>
-                    <div>
-                        <Label for="source_url">{{
-                            t('recipes.start_url')
-                        }}</Label
-                        ><Input
-                            id="source_url"
-                            v-model="form.url"
-                            type="url"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <Label for="connection">{{
-                            t('builder.connection')
-                        }}</Label
-                        ><select
-                            id="connection"
-                            v-model="form.connection_id"
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
-                        >
-                            <option :value="null">
-                                {{ t('builder.no_connection') }}
-                            </option>
-                            <option
-                                v-for="connection in connections.filter(
-                                    (item) => item.status === 'ready',
-                                )"
-                                :key="connection.id"
-                                :value="connection.id"
-                            >
-                                {{ connection.name }} ·
-                                {{ connection.origin }} ({{
-                                    connection.status
-                                }})
-                            </option>
-                        </select>
-                    </div>
-                    <div v-if="form.source_type !== 'website'">
-                        <Label for="records_path">{{
-                            t('builder.records_path')
-                        }}</Label
-                        ><Input
-                            id="records_path"
-                            v-model="form.records_path"
-                            :placeholder="
-                                form.source_type === 'json'
-                                    ? 'data.items'
-                                    : form.source_type === 'xml'
-                                      ? '/catalog/item'
-                                      : ''
-                            "
-                        />
-                        <p
-                            v-if="form.source_type === 'csv'"
-                            class="mt-1 text-xs text-on-surface-variant"
-                        >
-                            {{ t('builder.csv_path_help') }}
-                        </p>
-                    </div>
-                </div>
-                <div
-                    v-if="form.source_type === 'csv'"
-                    class="grid gap-4 sm:grid-cols-2"
+            <WorkflowSteps
+                :current="step"
+                :available="processing ? [] : form.url ? [0, 1] : [0]"
+                @select="step = $event"
+            />
+            <div id="builder-errors" tabindex="-1"><ActionErrors /></div>
+            <fieldset :disabled="processing" class="min-w-0">
+                <section
+                    v-show="step === 0"
+                    class="panel mb-6 space-y-5 p-5 sm:p-7"
                 >
-                    <div>
-                        <Label for="delimiter">{{
-                            t('builder.delimiter')
-                        }}</Label
-                        ><Input
-                            id="delimiter"
-                            v-model="
-                                (form.csv as Record<string, string>).delimiter
-                            "
-                            maxlength="1"
-                        />
-                    </div>
-                    <div>
-                        <Label for="encoding">{{ t('builder.encoding') }}</Label
-                        ><select
-                            id="encoding"
-                            v-model="
-                                (form.csv as Record<string, string>).encoding
-                            "
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
-                        >
-                            <option>UTF-8</option>
-                            <option>ISO-8859-1</option>
-                            <option>Windows-1252</option>
-                        </select>
-                    </div>
-                </div>
-                <details v-if="form.source_type === 'xml'" class="space-y-2">
-                    <summary class="cursor-pointer text-sm font-medium">
-                        {{ t('builder.advanced_xml') }}
-                    </summary>
-                    <p class="text-sm text-on-surface-variant">
-                        {{ t('builder.xml_namespaces_help') }}
-                    </p>
-                    <Label for="namespaces">{{
-                        t('builder.xml_namespaces')
-                    }}</Label
-                    ><textarea
-                        id="namespaces"
-                        :value="xmlNamespacesText"
-                        rows="3"
-                        class="w-full rounded-lg border border-outline-glass p-3 font-mono text-sm"
-                        @change="
-                            xmlNamespacesText = (
-                                $event.target as HTMLTextAreaElement
-                            ).value
-                        "
-                    />
-                </details>
-            </section>
-            <section
-                v-if="form.source_type !== 'website'"
-                class="panel mb-6 space-y-4 p-5 sm:p-7"
-            >
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h2 class="text-xl font-semibold">
-                            {{ t('builder.sample_title') }}
-                        </h2>
-                        <p class="mt-1 text-sm text-on-surface-variant">
-                            {{ t('builder.sample_help') }}
-                        </p>
-                    </div>
-                    <Button
-                        variant="secondary"
-                        :disabled="browserBusy"
-                        @click="loadSample"
-                        >{{ t('builder.load_sample') }}</Button
-                    >
-                </div>
-
-                <p
-                    v-if="sampleError"
-                    role="alert"
-                    class="text-sm text-error-red"
-                >
-                    {{ sampleError }}
-                </p>
-                <div v-if="sampleData" class="grid gap-5 lg:grid-cols-2">
-                    <div>
-                        <p class="mb-2 text-sm font-medium">
-                            {{ t('builder.sample_tree') }}
-                        </p>
-                        <pre
-                            class="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100"
-                            >{{
-                                typeof sampleData === 'string'
-                                    ? sampleData
-                                    : JSON.stringify(sampleData, null, 2)
-                            }}</pre>
-                    </div>
-                    <div class="space-y-4">
-                        <div v-if="form.source_type !== 'csv'">
-                            <p class="mb-2 text-sm font-medium">
-                                {{ t('builder.choose_records') }}
-                            </p>
-                            <div
-                                v-if="!sampleRecordsPaths.length"
-                                class="rounded border border-outline-glass p-3 text-sm text-on-surface-variant"
-                            >
-                                {{ t('builder.records_path_manual') }}
-                            </div>
-                            <div
-                                v-for="path in sampleRecordsPaths"
-                                :key="path"
-                                class="flex items-center justify-between gap-3 rounded border border-outline-glass p-2 text-sm"
-                            >
-                                <code>{{ path }}</code
-                                ><Button
-                                    variant="secondary"
-                                    @click="pickSamplePath(path)"
-                                    >{{
-                                        form.records_path === path
-                                            ? t('builder.selected_path')
-                                            : t('builder.select_path')
-                                    }}</Button
-                                >
-                            </div>
-                        </div>
-                        <div v-if="sampleFieldPaths.length">
-                            <Label for="sample_target">{{
-                                t('builder.sample_field_target')
+                    <h2 class="text-xl font-semibold">
+                        {{ t('builder.source') }}
+                    </h2>
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <Label for="source_type">{{
+                                t('builder.source_type')
                             }}</Label
                             ><select
-                                id="sample_target"
-                                v-model="selected"
-                                class="mb-2 h-11 w-full rounded-lg border border-outline-glass bg-white px-3"
-                            >
-                                <option value="">
-                                    {{ t('builder.add_sample_field') }}
-                                </option>
-                                <option
-                                    v-for="field in form.fields"
-                                    :key="field.name"
-                                    :value="field.name"
-                                >
-                                    {{ field.name }}
-                                </option>
-                            </select>
-                            <div class="flex flex-wrap gap-2">
-                                <Button
-                                    v-for="path in sampleFieldPaths"
-                                    :key="path"
-                                    variant="secondary"
-                                    @click="useSampleField(path)"
-                                    >{{ path }}</Button
-                                >
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-            <section
-                v-if="form.source_type === 'website'"
-                ref="visualSection"
-                class="panel mb-6 scroll-mt-6 space-y-5 overflow-hidden p-5 sm:p-7"
-            >
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                        <h2 class="text-xl font-semibold">
-                            {{ t('builder.visual_title') }}
-                        </h2>
-                        <p
-                            class="mt-1 max-w-2xl text-sm text-on-surface-variant"
-                        >
-                            {{ t('builder.visual_help') }}
-                        </p>
-                    </div>
-                    <div class="flex gap-2">
-                        <Button :disabled="browserBusy" @click="openWebsite">{{
-                            t('builder.open_browser')
-                        }}</Button
-                        ><Button
-                            variant="secondary"
-                            :disabled="browserBusy || !browserReady"
-                            @click="browserAction('snapshot')"
-                            >{{ t('builder.refresh_snapshot') }}</Button
-                        >
-                    </div>
-                </div>
-                <p
-                    v-if="browserError"
-                    role="alert"
-                    class="text-sm text-error-red"
-                >
-                    {{ browserError }}
-                </p>
-                <p
-                    v-if="browser.accessChallenge"
-                    role="alert"
-                    class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-                >
-                    {{ t('builder.access_challenge') }}
-                </p>
-                <div
-                    v-if="!browser.screenshot"
-                    class="flex min-h-56 flex-col items-center justify-center rounded-xl border border-dashed border-outline-glass bg-surface-container-low px-6 py-8 text-center"
-                >
-                    <span
-                        class="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-primary"
-                        ><ScanSearch :size="24" aria-hidden="true"
-                    /></span>
-                    <p class="mt-3 font-semibold">
-                        {{ t('builder.preview_empty') }}
-                    </p>
-                    <p class="mt-1 max-w-md text-sm text-on-surface-variant">
-                        {{ t('builder.preview_empty_help') }}
-                    </p>
-                </div>
-                <div
-                    v-if="browser.nativeControl && browserReady"
-                    class="rounded-lg border border-outline-glass bg-surface-container-low p-4"
-                >
-                    <p class="mb-3 text-sm text-on-surface-variant">
-                        {{ t('builder.native_control_help') }}
-                    </p>
-                    <Button
-                        :disabled="browserBusy"
-                        @click="
-                            browserAction('act', { input: { action: 'focus' } })
-                        "
-                        >{{ t('builder.control_browser_window') }}</Button
-                    >
-                </div>
-                <div v-if="browser.screenshot" class="flex flex-wrap gap-2">
-                    <Button
-                        :variant="pageInteraction ? 'primary' : 'secondary'"
-                        :aria-pressed="pageInteraction"
-                        :disabled="browserBusy || !browserReady"
-                        @click="setPageInteraction(true)"
-                        >{{ t('builder.use_page') }}</Button
-                    >
-                    <Button
-                        :variant="!pageInteraction ? 'primary' : 'secondary'"
-                        :aria-pressed="!pageInteraction"
-                        :disabled="
-                            browserBusy ||
-                            !browserReady ||
-                            browser.accessChallenge
-                        "
-                        @click="setPageInteraction(false)"
-                        >{{ t('builder.select_data') }}</Button
-                    >
-                </div>
-                <div
-                    v-if="
-                        browser.screenshot &&
-                        !browser.accessChallenge &&
-                        !pageInteraction
-                    "
-                    class="flex flex-wrap items-center gap-2 text-sm"
-                >
-                    <Button
-                        :variant="
-                            pickMode === 'records' ? 'primary' : 'secondary'
-                        "
-                        @click="setPickMode('records')"
-                        >{{ t('builder.pick_records_step') }}</Button
-                    >
-                    <Button
-                        :variant="
-                            pickMode === 'fields' ? 'primary' : 'secondary'
-                        "
-                        :disabled="
-                            !form.website?.record_selector ||
-                            form.website.record_selector === 'body'
-                        "
-                        @click="setPickMode('fields')"
-                        >{{ t('builder.pick_columns_step') }}</Button
-                    >
-                    <span
-                        v-if="browser.matches.length"
-                        class="rounded-full bg-success/10 px-3 py-1 font-medium text-success"
-                        >{{
-                            t('builder.matched_records', {
-                                count: browser.matches.length,
-                            })
-                        }}</span
-                    >
-                </div>
-                <div
-                    v-if="browser.screenshot"
-                    class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
-                >
-                    <div
-                        class="relative w-fit max-w-full overflow-hidden rounded-xl border border-outline-glass bg-slate-100 shadow-sm"
-                    >
-                        <button
-                            type="button"
-                            class="relative block max-w-full text-left disabled:cursor-not-allowed"
-                            :class="
-                                pageInteraction
-                                    ? 'cursor-pointer'
-                                    : 'cursor-crosshair'
-                            "
-                            :disabled="
-                                browserBusy ||
-                                !browserReady ||
-                                (!pageInteraction && browser.accessChallenge)
-                            "
-                            :aria-label="
-                                t(
-                                    pageInteraction
-                                        ? 'builder.interact_page'
-                                        : 'builder.inspect_page',
-                                )
-                            "
-                            @click="inspectPoint"
-                        >
-                            <img
-                                :src="
-                                    browser.screenshot.startsWith('data:')
-                                        ? browser.screenshot
-                                        : `data:image/jpeg;base64,${browser.screenshot}`
+                                id="source_type"
+                                v-model="form.source_type"
+                                @change="
+                                    changeSource(
+                                        ($event.target as HTMLSelectElement)
+                                            .value,
+                                    )
                                 "
-                                :alt="t('builder.snapshot_alt')"
-                                class="block max-h-[65vh] max-w-full object-contain"
-                            />
-                            <div
-                                v-for="match in pageInteraction
-                                    ? []
-                                    : browser.matches"
-                                :key="match.index"
-                                class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
-                                :style="{
-                                    left: `${(match.x / browser.viewport.width) * 100}%`,
-                                    top: `${(match.y / browser.viewport.height) * 100}%`,
-                                    width: `${(match.width / browser.viewport.width) * 100}%`,
-                                    height: `${(match.height / browser.viewport.height) * 100}%`,
-                                }"
-                            />
-                        </button>
-                    </div>
-                    <div
-                        v-if="pageInteraction"
-                        class="space-y-3 rounded-xl border border-outline-glass bg-surface-container-low p-4"
-                    >
-                        <h3 class="font-semibold">
-                            {{ t('builder.use_page') }}
-                        </h3>
-                        <p class="text-sm text-on-surface-variant">
-                            {{ t('builder.interact_help') }}
-                        </p>
-                        <Button
-                            variant="secondary"
-                            :disabled="
-                                browserBusy ||
-                                !browserReady ||
-                                browser.accessChallenge
-                            "
-                            @click="browserAction('save')"
-                            >{{ t('builder.save_browser_session') }}</Button
-                        >
-                        <p
-                            v-if="browserSessionSaved"
-                            role="status"
-                            class="text-sm"
-                        >
-                            {{
-                                t(
-                                    browserReady
-                                        ? 'builder.browser_session_retained'
-                                        : 'builder.browser_session_saved',
-                                )
-                            }}
-                        </p>
-                    </div>
-                    <div
-                        v-else-if="!browser.accessChallenge"
-                        class="rounded-xl border border-outline-glass bg-surface-container-low p-4"
-                    >
-                        <h3 class="font-semibold">{{ pickTitle }}</h3>
-                        <p class="mt-1 text-sm text-on-surface-variant">
-                            {{ pickHint }}
-                        </p>
-                        <div
-                            v-if="browser.candidates.length"
-                            class="mt-4 max-h-[56vh] space-y-2 overflow-y-auto"
-                        >
-                            <div
-                                v-for="candidate in visibleCandidates"
-                                :key="candidate.selector"
-                                class="rounded-lg border border-outline-glass bg-white p-3 text-sm"
-                            >
-                                <p class="line-clamp-2 font-medium">
-                                    {{ candidate.text || candidate.tag }}
-                                </p>
-                                <p class="mt-1 text-xs text-on-surface-variant">
-                                    {{
-                                        t('builder.match_count', {
-                                            count: candidate.count,
-                                        })
-                                    }}
-                                </p>
-                                <Button
-                                    class="mt-3 w-full"
-                                    :disabled="browserBusy"
-                                    @click="chooseCandidate(candidate)"
-                                    >{{ pickAction }}</Button
-                                >
-                                <details
-                                    class="mt-2 text-xs text-on-surface-variant"
-                                >
-                                    <summary class="cursor-pointer">
-                                        {{ t('builder.advanced_selectors') }}
-                                    </summary>
-                                    <code class="mt-1 block break-all">{{
-                                        candidate.selector
-                                    }}</code>
-                                    <Button
-                                        class="mt-2"
-                                        variant="secondary"
-                                        :disabled="browserBusy"
-                                        @click="
-                                            browserAction('act', {
-                                                input: {
-                                                    action: 'click',
-                                                    selector:
-                                                        candidate.selector,
-                                                },
-                                            })
-                                        "
-                                        >{{
-                                            t('builder.click_element')
-                                        }}</Button
-                                    >
-                                </details>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <details class="rounded-lg border border-outline-glass p-4">
-                    <summary class="font-medium">
-                        {{ t('builder.advanced_selectors') }}
-                    </summary>
-                    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-                        <div>
-                            <Label for="record_selector">{{
-                                t('builder.record_selector')
-                            }}</Label
-                            ><Input
-                                id="record_selector"
-                                v-model="
-                                    (form.website as Record<string, string>)
-                                        .record_selector
-                                "
-                                placeholder="article.product"
-                            />
-                        </div>
-                        <div>
-                            <Label for="detail_url_selector">{{
-                                t('builder.detail_url_selector')
-                            }}</Label
-                            ><Input
-                                id="detail_url_selector"
-                                v-model="
-                                    (form.website as Record<string, string>)
-                                        .detail_url_selector
-                                "
-                                placeholder="a.product-link"
-                            />
-                        </div>
-                        <div>
-                            <Label for="signed_in_selector">{{
-                                t('builder.signed_in_selector')
-                            }}</Label
-                            ><Input
-                                id="signed_in_selector"
-                                v-model="
-                                    (form.website as Record<string, string>)
-                                        .signed_in_selector
-                                "
-                                :placeholder="
-                                    t('builder.signed_in_placeholder')
-                                "
-                            />
-                        </div>
-                    </div>
-                </details>
-                <details class="rounded-lg border border-outline-glass p-4">
-                    <summary class="cursor-pointer font-medium">
-                        {{ t('builder.login_title') }}
-                    </summary>
-                    <p class="my-3 text-sm text-on-surface-variant">
-                        {{ t('builder.login_help') }}
-                    </p>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <p class="text-sm font-medium">
-                                {{ t('builder.login_selector') }}
-                            </p>
-                            <p
-                                class="mt-1 truncate rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant"
-                            >
-                                {{
-                                    loginForm.selector ||
-                                    t('builder.no_element_selected')
-                                }}
-                            </p>
-                            <Button
-                                class="mt-2"
-                                variant="secondary"
-                                :disabled="!browserReady || browserBusy"
-                                @click="setPickMode('login')"
-                                >{{ t('builder.pick_visual') }}</Button
-                            >
-                            <details class="mt-2 text-sm">
-                                <summary
-                                    class="cursor-pointer text-on-surface-variant"
-                                >
-                                    {{ t('builder.advanced_selectors') }}
-                                </summary>
-                                <Label for="login-selector">{{
-                                    t('builder.login_selector')
-                                }}</Label
-                                ><Input
-                                    id="login-selector"
-                                    v-model="loginForm.selector"
-                                    :placeholder="
-                                        t('builder.login_selector_placeholder')
-                                    "
-                                />
-                            </details>
-                        </div>
-                        <div>
-                            <Label for="login-value">{{
-                                t('builder.login_value')
-                            }}</Label
-                            ><Input
-                                id="login-value"
-                                v-model="loginForm.value"
-                                type="password"
-                                autocomplete="off"
-                            />
-                        </div>
-                    </div>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                        <Button
-                            variant="secondary"
-                            :disabled="
-                                browserBusy ||
-                                !browserReady ||
-                                !loginForm.selector ||
-                                !loginForm.value
-                            "
-                            @click="sendLoginValue"
-                            >{{ t('builder.type_login_value') }}</Button
-                        ><Button
-                            variant="secondary"
-                            :disabled="browserBusy || !browserReady"
-                            @click="
-                                browserAction('act', {
-                                    input: { action: 'press', key: 'Enter' },
-                                })
-                            "
-                            >{{ t('builder.submit_login') }}</Button
-                        ><Button
-                            variant="secondary"
-                            :disabled="browserBusy || !browserReady"
-                            @click="browserAction('save')"
-                            >{{ t('builder.save_login') }}</Button
-                        ><Button
-                            variant="secondary"
-                            :disabled="browserBusy || !browserReady"
-                            @click="
-                                browserAction('act', {
-                                    input: { action: 'scroll', deltaY: 650 },
-                                })
-                            "
-                            >{{ t('builder.scroll_page') }}</Button
-                        >
-                    </div>
-                </details>
-                <details class="rounded-lg border border-outline-glass p-4">
-                    <summary class="cursor-pointer font-medium">
-                        {{ t('builder.detail_fields') }}
-                    </summary>
-                    <p class="my-3 text-sm text-on-surface-variant">
-                        {{ t('builder.detail_fields_help') }}
-                    </p>
-                    <div
-                        class="mb-4 rounded-lg bg-surface-container-low p-3 text-sm"
-                    >
-                        <p class="font-medium">
-                            {{ t('builder.detail_url_selector') }}
-                        </p>
-                        <p class="mt-1 break-all text-on-surface-variant">
-                            {{
-                                form.website?.detail_url_selector ||
-                                t('builder.no_element_selected')
-                            }}
-                        </p>
-                        <Button
-                            class="mt-2"
-                            variant="secondary"
-                            :disabled="!browserReady || browserBusy"
-                            @click="setPickMode('detail')"
-                            >{{ t('builder.pick_visual') }}</Button
-                        >
-                        <Button
-                            class="ml-2 mt-2"
-                            variant="secondary"
-                            :disabled="
-                                !browserReady ||
-                                browserBusy ||
-                                !form.website?.detail_url_selector
-                            "
-                            @click="
-                                browserAction('act', {
-                                    input: {
-                                        action: 'click',
-                                        selector:
-                                            form.website?.detail_url_selector,
-                                    },
-                                })
-                            "
-                            >{{ t('builder.open_detail_page') }}</Button
-                        >
-                    </div>
-                    <Button variant="secondary" @click="addDetailField">{{
-                        t('builder.add_field')
-                    }}</Button>
-                    <div
-                        v-for="(field, index) in detailFields"
-                        :key="index"
-                        class="mt-3 grid gap-3 rounded-lg border border-outline-glass p-3 sm:grid-cols-2 xl:grid-cols-4"
-                    >
-                        <div>
-                            <Label :for="`detail-name-${index}`">{{
-                                t('builder.field_name')
-                            }}</Label
-                            ><Input
-                                :id="`detail-name-${index}`"
-                                v-model="field.name"
-                            />
-                        </div>
-                        <div>
-                            <p class="text-sm font-medium">
-                                {{ t('builder.source_element') }}
-                            </p>
-                            <p
-                                class="mt-1 break-all text-sm text-on-surface-variant"
-                            >
-                                {{
-                                    field.path ||
-                                    t('builder.no_element_selected')
-                                }}
-                            </p>
-                            <Button
-                                class="mt-2"
-                                variant="secondary"
-                                :disabled="!browserReady || browserBusy"
-                                @click="
-                                    startFieldSelection(`detail:${field.name}`)
-                                "
-                                >{{
-                                    selected === `detail:${field.name}`
-                                        ? t('builder.field_selected')
-                                        : t('builder.pick_visual')
-                                }}</Button
-                            >
-                            <details class="mt-2 text-sm">
-                                <summary
-                                    class="cursor-pointer text-on-surface-variant"
-                                >
-                                    {{ t('builder.advanced_selectors') }}
-                                </summary>
-                                <Label :for="`detail-path-${index}`">{{
-                                    t('builder.field_path')
-                                }}</Label>
-                                <Input
-                                    :id="`detail-path-${index}`"
-                                    v-model="field.path"
-                                />
-                            </details>
-                        </div>
-                        <div>
-                            <Label :for="`detail-type-${index}`">{{
-                                t('builder.field_type')
-                            }}</Label
-                            ><select
-                                :id="`detail-type-${index}`"
-                                v-model="field.type"
                                 class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
                             >
                                 <option
-                                    v-for="type in [
-                                        'string',
-                                        'number',
-                                        'boolean',
-                                        'date',
-                                        'url',
-                                    ]"
+                                    v-for="type in sourceOptions"
                                     :key="type"
                                     :value="type"
                                 >
-                                    {{ t(`builder.type_${type}`) }}
+                                    {{ t(`builder.${type}`) }}
                                 </option>
                             </select>
                         </div>
-                        <label
-                            class="flex min-h-12 items-center gap-2 pt-5 text-sm"
-                            ><input
-                                v-model="field.required"
-                                type="checkbox"
-                                class="h-4 w-4 accent-primary"
-                            />{{ t('builder.required') }}</label
-                        >
-                        <Button
-                            variant="danger"
-                            class="self-end"
-                            @click="removeDetailField(index)"
-                            >{{ t('builder.remove_field') }}</Button
-                        >
-                    </div>
-                </details>
-            </section>
-            <section class="panel mb-6 space-y-4 p-5 sm:p-7">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h2 class="text-xl font-semibold">
-                            {{ t('builder.fields') }}
-                        </h2>
-                        <p class="mt-1 text-sm text-on-surface-variant">
-                            {{ t('builder.fields_help') }}
-                        </p>
-                    </div>
-                    <Button variant="secondary" @click="addField">{{
-                        t('builder.add_field')
-                    }}</Button>
-                </div>
-                <div
-                    v-for="(field, index) in form.fields"
-                    :key="index"
-                    class="grid gap-3 rounded-lg border border-outline-glass p-4 sm:grid-cols-2 xl:grid-cols-5"
-                >
-                    <div>
-                        <Label :for="`field-name-${index}`">{{
-                            t('builder.field_name')
-                        }}</Label
-                        ><Input
-                            :id="`field-name-${index}`"
-                            v-model="field.name"
-                        />
-                    </div>
-                    <div
-                        v-if="form.source_type === 'website'"
-                        class="sm:col-span-2"
-                    >
-                        <p class="text-sm font-medium">
-                            {{ t('builder.source_element') }}
-                        </p>
-                        <p
-                            class="mt-1 truncate rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant"
-                        >
-                            {{
-                                field.name === 'name' && field.path === 'name'
-                                    ? t('builder.no_element_selected')
-                                    : field.path ||
-                                      t('builder.no_element_selected')
-                            }}
-                        </p>
-                        <Button
-                            class="mt-2"
-                            variant="secondary"
-                            @click="startFieldSelection(field.name)"
-                            >{{ t('builder.pick_visual') }}</Button
-                        >
-                        <details class="mt-2 text-sm">
-                            <summary class="text-on-surface-variant">
-                                {{ t('builder.advanced_selectors') }}
-                            </summary>
-                            <Label :for="`field-path-${index}`">{{
-                                t('builder.field_path')
-                            }}</Label>
-                            <Input
-                                :id="`field-path-${index}`"
-                                v-model="field.path"
+                        <div>
+                            <Label for="source_url">{{
+                                t('setup.source_url')
+                            }}</Label
+                            ><Input
+                                id="source_url"
+                                v-model="form.url"
+                                type="url"
+                                required
                             />
-                        </details>
-                    </div>
-                    <div v-else>
-                        <Label :for="`field-path-${index}`">{{
-                            t('builder.field_path')
-                        }}</Label
-                        ><Input
-                            :id="`field-path-${index}`"
-                            v-model="field.path"
-                        />
-                    </div>
-                    <div>
-                        <Label :for="`field-type-${index}`">{{
-                            t('builder.field_type')
-                        }}</Label
-                        ><select
-                            :id="`field-type-${index}`"
-                            v-model="field.type"
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
-                        >
-                            <option
-                                v-for="type in [
-                                    'string',
-                                    'number',
-                                    'boolean',
-                                    'date',
-                                    'url',
-                                ]"
-                                :key="type"
-                                :value="type"
+                        </div>
+                        <div>
+                            <Label for="connection">{{
+                                t('builder.connection')
+                            }}</Label
+                            ><select
+                                id="connection"
+                                v-model="form.connection_id"
+                                class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
                             >
-                                {{ t(`builder.type_${type}`) }}
-                            </option>
-                        </select>
-                    </div>
-                    <label class="flex min-h-12 items-center gap-2 pt-5 text-sm"
-                        ><input
-                            v-model="field.required"
-                            type="checkbox"
-                            class="h-4 w-4 accent-primary"
-                        />{{ t('builder.required') }}</label
-                    ><Button
-                        variant="danger"
-                        class="self-end"
-                        :disabled="form.fields.length < 2"
-                        @click="removeField(index)"
-                        >{{ t('builder.remove_field') }}</Button
-                    >
-                    <div v-if="field.type === 'number'" class="sm:col-span-2">
-                        <Label :for="`field-number-locale-${index}`">{{
-                            t('builder.number_format')
-                        }}</Label
-                        ><select
-                            :id="`field-number-locale-${index}`"
-                            v-model="field.number_locale"
-                            class="h-11 rounded-lg border border-outline-glass bg-white px-3"
-                        >
-                            <option value="dot">1,234.56</option>
-                            <option value="comma">1.234,56</option>
-                        </select>
-                    </div>
-                    <div v-if="field.type === 'date'" class="sm:col-span-2">
-                        <Label :for="`field-date-format-${index}`">{{
-                            t('builder.date_format')
-                        }}</Label
-                        ><Input
-                            :id="`field-date-format-${index}`"
-                            v-model="field.date_format"
-                            placeholder="Y-m-d"
-                        />
+                                <option :value="null">
+                                    {{ t('builder.no_connection') }}
+                                </option>
+                                <option
+                                    v-for="connection in connections.filter(
+                                        (item) => item.status === 'ready',
+                                    )"
+                                    :key="connection.id"
+                                    :value="connection.id"
+                                >
+                                    {{ connection.name }} ·
+                                    {{ connection.origin }} ({{
+                                        connection.status
+                                    }})
+                                </option>
+                            </select>
+                        </div>
+                        <div v-if="form.source_type !== 'website'">
+                            <Label for="records_path">{{
+                                t('builder.records_path')
+                            }}</Label
+                            ><Input
+                                id="records_path"
+                                v-model="form.records_path"
+                                :placeholder="
+                                    form.source_type === 'json'
+                                        ? 'data.items'
+                                        : form.source_type === 'xml'
+                                          ? '/catalog/item'
+                                          : ''
+                                "
+                            />
+                            <p
+                                v-if="form.source_type === 'csv'"
+                                class="mt-1 text-xs text-on-surface-variant"
+                            >
+                                {{ t('builder.csv_path_help') }}
+                            </p>
+                        </div>
                     </div>
                     <div
-                        v-if="field.type === 'boolean'"
-                        class="sm:col-span-2 xl:col-span-5 grid gap-3 sm:grid-cols-2"
+                        v-if="form.source_type === 'csv'"
+                        class="grid gap-4 sm:grid-cols-2"
                     >
                         <div>
-                            <Label :for="`field-true-${index}`">{{
-                                t('builder.true_values')
+                            <Label for="delimiter">{{
+                                t('builder.delimiter')
                             }}</Label
                             ><Input
-                                :id="`field-true-${index}`"
-                                :model-value="
-                                    field.boolean_true?.join(', ') ?? ''
+                                id="delimiter"
+                                v-model="
+                                    (form.csv as Record<string, string>)
+                                        .delimiter
                                 "
-                                @update:model-value="
-                                    setBooleanMap(
-                                        field,
-                                        'boolean_true',
-                                        String($event ?? ''),
-                                    )
-                                "
+                                maxlength="1"
                             />
                         </div>
                         <div>
-                            <Label :for="`field-false-${index}`">{{
-                                t('builder.false_values')
+                            <Label for="encoding">{{
+                                t('builder.encoding')
                             }}</Label
-                            ><Input
-                                :id="`field-false-${index}`"
-                                :model-value="
-                                    field.boolean_false?.join(', ') ?? ''
+                            ><select
+                                id="encoding"
+                                v-model="
+                                    (form.csv as Record<string, string>)
+                                        .encoding
                                 "
-                                @update:model-value="
-                                    setBooleanMap(
-                                        field,
-                                        'boolean_false',
-                                        String($event ?? ''),
-                                    )
-                                "
-                            />
+                                class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                            >
+                                <option>UTF-8</option>
+                                <option>ISO-8859-1</option>
+                                <option>Windows-1252</option>
+                            </select>
                         </div>
                     </div>
-                    <div class="sm:col-span-2 xl:col-span-5">
-                        <Label :for="`field-transform-${index}`">{{
-                            t('builder.transform')
+                    <details
+                        v-if="form.source_type === 'xml'"
+                        class="space-y-2"
+                    >
+                        <summary class="cursor-pointer text-sm font-medium">
+                            {{ t('builder.advanced_xml') }}
+                        </summary>
+                        <p class="text-sm text-on-surface-variant">
+                            {{ t('builder.xml_namespaces_help') }}
+                        </p>
+                        <Label for="namespaces">{{
+                            t('builder.xml_namespaces')
                         }}</Label
-                        ><select
-                            :id="`field-transform-${index}`"
-                            :value="field.transforms?.[0]?.op ?? 'trim'"
-                            class="h-11 rounded-lg border border-outline-glass bg-white px-3"
+                        ><textarea
+                            id="namespaces"
+                            :value="xmlNamespacesText"
+                            rows="3"
+                            class="w-full rounded-lg border border-outline-glass p-3 font-mono text-sm"
                             @change="
-                                setTransform(
-                                    field,
-                                    ($event.target as HTMLSelectElement).value,
-                                )
-                            "
-                        >
-                            <option value="trim">
-                                {{ t('builder.trim') }}
-                            </option>
-                            <option value="lowercase">
-                                {{ t('builder.lowercase') }}
-                            </option>
-                            <option value="uppercase">
-                                {{ t('builder.uppercase') }}
-                            </option>
-                            <option value="replace">
-                                {{ t('builder.replace') }}
-                            </option>
-                            <option value="prefix">
-                                {{ t('builder.prefix') }}
-                            </option>
-                            <option value="suffix">
-                                {{ t('builder.suffix') }}
-                            </option>
-                        </select>
-                        <div
-                            v-if="field.transforms?.[0]?.op === 'replace'"
-                            class="mt-2 grid gap-3 sm:grid-cols-2"
-                        >
-                            <Input
-                                :value="field.transforms[0]?.search ?? ''"
-                                :placeholder="t('builder.find_text')"
-                                @input="
-                                    field.transforms![0]!.search = (
-                                        $event.target as HTMLInputElement
-                                    ).value
-                                "
-                            /><Input
-                                :value="field.transforms[0]?.value ?? ''"
-                                :placeholder="t('builder.replacement_text')"
-                                @input="
-                                    field.transforms![0]!.value = (
-                                        $event.target as HTMLInputElement
-                                    ).value
-                                "
-                            />
-                        </div>
-                        <Input
-                            v-else-if="
-                                ['prefix', 'suffix'].includes(
-                                    field.transforms?.[0]?.op ?? '',
-                                )
-                            "
-                            class="mt-2"
-                            :value="field.transforms?.[0]?.value ?? ''"
-                            :placeholder="t('builder.transform_value')"
-                            @input="
-                                field.transforms![0]!.value = (
-                                    $event.target as HTMLInputElement
+                                xmlNamespacesText = (
+                                    $event.target as HTMLTextAreaElement
                                 ).value
                             "
                         />
-                    </div>
-                </div>
-                <fieldset class="space-y-3">
-                    <legend class="font-semibold">
-                        {{ t('builder.comparison') }}
-                    </legend>
-                    <p class="text-sm text-on-surface-variant">
-                        {{ t('builder.comparison_help') }}
-                    </p>
-                    <div
-                        v-for="field in form.fields"
-                        :key="field.name"
-                        class="flex flex-wrap gap-5 text-sm"
-                    >
-                        <span class="min-w-32 font-medium">{{
-                            field.name
-                        }}</span
-                        ><label class="flex items-center gap-2"
-                            ><input
-                                type="checkbox"
-                                :checked="
-                                    form.comparison.identity.includes(
-                                        field.name,
-                                    )
-                                "
-                                @change="
-                                    updateComparison(
-                                        form.comparison.identity,
-                                        'identity',
-                                        field.name,
-                                        ($event.target as HTMLInputElement)
-                                            .checked,
-                                    )
-                                "
-                            />{{ t('builder.identity') }}</label
-                        ><label class="flex items-center gap-2"
-                            ><input
-                                type="checkbox"
-                                :checked="
-                                    form.comparison.fields.includes(field.name)
-                                "
-                                @change="
-                                    updateComparison(
-                                        form.comparison.fields,
-                                        'fields',
-                                        field.name,
-                                        ($event.target as HTMLInputElement)
-                                            .checked,
-                                    )
-                                "
-                            />{{ t('builder.compare') }}</label
-                        >
-                    </div>
-                </fieldset>
-                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                    <div
-                        v-for="key in [
-                            'rows',
-                            'bytes',
-                            'requests',
-                            'pages',
-                            'seconds',
-                        ]"
-                        :key="key"
-                    >
-                        <Label :for="`limit-${key}`">{{
-                            t(`builder.limit_${key}`)
-                        }}</Label
-                        ><Input
-                            :id="`limit-${key}`"
-                            v-model.number="form.limits[key]"
-                            type="number"
-                            min="1"
-                        />
-                    </div>
-                </div>
-                <label class="flex items-center gap-2 text-sm"
-                    ><input
-                        v-model="form.validation.allow_empty"
-                        type="checkbox"
-                        class="h-4 w-4 accent-primary"
-                    />{{ t('builder.allow_empty') }}</label
+                    </details>
+                </section>
+                <div
+                    v-show="step === 1"
+                    class="grid items-start gap-x-5 xl:grid-cols-[minmax(0,1fr)_20rem]"
                 >
-            </section>
-            <section class="panel mb-6 space-y-4 p-5 sm:p-7">
-                <h2 class="text-xl font-semibold">
-                    {{ t('builder.pagination') }}
-                </h2>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <Label for="pagination_mode">{{
-                            t('builder.pagination_mode')
-                        }}</Label
-                        ><select
-                            id="pagination_mode"
-                            v-model="form.pagination.mode"
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                    <section
+                        v-if="form.source_type !== 'website'"
+                        class="panel mb-6 min-w-0 space-y-4 p-5 xl:col-start-1 xl:row-start-1"
+                    >
+                        <div
+                            class="flex flex-wrap items-center justify-between gap-3"
                         >
-                            <option
-                                v-for="mode in [
-                                    'none',
-                                    'page',
-                                    'offset',
-                                    'next_link',
-                                    'cursor',
-                                    'next_page',
-                                    'load_more',
-                                    'scroll',
-                                ]"
-                                :key="mode"
-                                :value="mode"
-                                :disabled="
-                                    form.source_type === 'website'
-                                        ? ![
-                                              'none',
-                                              'next_page',
-                                              'load_more',
-                                              'scroll',
-                                          ].includes(mode)
-                                        : [
-                                              'next_page',
-                                              'load_more',
-                                              'scroll',
-                                          ].includes(mode) ||
-                                          (form.source_type !== 'json' &&
-                                              ['next_link', 'cursor'].includes(
-                                                  mode,
-                                              ))
-                                "
+                            <div>
+                                <h2 class="text-xl font-semibold">
+                                    {{ t('builder.sample_title') }}
+                                </h2>
+                                <p class="mt-1 text-sm text-on-surface-variant">
+                                    {{ t('builder.sample_help') }}
+                                </p>
+                            </div>
+                            <Button
+                                variant="secondary"
+                                :disabled="sampleLoading"
+                                @click="loadSample"
+                                >{{
+                                    t(
+                                        sampleLoading
+                                            ? 'common.loading'
+                                            : 'builder.load_sample',
+                                    )
+                                }}</Button
                             >
-                                {{ t(`builder.pagination_${mode}`) }}
-                            </option>
-                        </select>
-                    </div>
-                    <div v-for="key in paginationKeys" :key="key">
-                        <Label :for="`pagination-${key}`">{{
-                            t(`builder.pagination_${key}`)
-                        }}</Label
-                        ><Input
-                            :id="`pagination-${key}`"
-                            v-model="form.pagination[key]"
-                            :type="
-                                ['start', 'step', 'max_actions'].includes(key)
-                                    ? 'number'
-                                    : 'text'
+                        </div>
+
+                        <div
+                            v-if="!sampleData && !sampleError"
+                            class="flex min-h-56 flex-col items-center justify-center rounded-2xl bg-sky/45 p-6 text-center"
+                        >
+                            <span class="pastel-icon mb-4 bg-white text-primary"
+                                ><ScanSearch :size="24"
+                            /></span>
+                            <p class="font-semibold">
+                                {{ t('redesign.sample_empty') }}
+                            </p>
+                            <p
+                                class="mt-2 max-w-sm text-sm text-on-surface-variant"
+                            >
+                                {{ t('redesign.sample_empty_help') }}
+                            </p>
+                        </div>
+                        <p
+                            v-if="sampleError"
+                            role="alert"
+                            class="text-sm text-error-red"
+                        >
+                            {{ sampleError }}
+                        </p>
+                        <p
+                            v-if="sampleData"
+                            class="text-sm text-on-surface-variant"
+                        >
+                            {{ t('redesign.select_sample_help') }}
+                        </p>
+                        <SourceSampleTable
+                            v-if="sampleData"
+                            :sample="sampleData"
+                            :selected-paths="
+                                form.fields.map((field) => field.path)
+                            "
+                            @toggle-column="toggleSampleColumn"
+                            :source-type="form.source_type"
+                            :records-path="form.records_path"
+                            :paths="sampleFieldPaths"
+                            :delimiter="String(form.csv?.delimiter ?? ',')"
+                            :namespaces="
+                                (form.xml?.namespaces ?? {}) as Record<
+                                    string,
+                                    string
+                                >
                             "
                         />
-                        <Button
+                        <div v-if="sampleData" class="grid min-w-0 gap-5">
+                            <div class="space-y-4">
+                                <details
+                                    v-if="form.source_type !== 'csv'"
+                                    :open="sampleRecordsPaths.length > 1"
+                                >
+                                    <summary
+                                        class="text-sm font-medium text-on-surface-variant"
+                                    >
+                                        {{ t('builder.choose_records') }}
+                                    </summary>
+                                    <div
+                                        v-if="!sampleRecordsPaths.length"
+                                        class="rounded border border-outline-glass p-3 text-sm text-on-surface-variant"
+                                    >
+                                        {{ t('builder.records_path_manual') }}
+                                    </div>
+                                    <div
+                                        v-for="path in sampleRecordsPaths"
+                                        :key="path"
+                                        class="flex items-center justify-between gap-3 rounded border border-outline-glass p-2 text-sm"
+                                    >
+                                        <code>{{ path }}</code
+                                        ><Button
+                                            variant="secondary"
+                                            @click="pickSamplePath(path)"
+                                            >{{
+                                                form.records_path === path
+                                                    ? t('builder.selected_path')
+                                                    : t('builder.select_path')
+                                            }}</Button
+                                        >
+                                    </div>
+                                </details>
+                                <details
+                                    v-if="sampleFieldPaths.length"
+                                    class="border-t border-outline-glass pt-2"
+                                >
+                                    <summary
+                                        class="text-sm text-on-surface-variant"
+                                    >
+                                        {{ t('redesign.manual_mapping') }}
+                                    </summary>
+                                    <Label for="sample_target">{{
+                                        t('builder.sample_field_target')
+                                    }}</Label
+                                    ><select
+                                        id="sample_target"
+                                        v-model="selected"
+                                        class="mb-2 h-11 w-full rounded-lg border border-outline-glass bg-white px-3"
+                                    >
+                                        <option value="">
+                                            {{ t('builder.add_sample_field') }}
+                                        </option>
+                                        <option
+                                            v-for="field in form.fields"
+                                            :key="field.name"
+                                            :value="field.name"
+                                        >
+                                            {{ field.name }}
+                                        </option>
+                                    </select>
+                                    <div class="flex flex-wrap gap-2">
+                                        <Button
+                                            v-for="path in sampleFieldPaths"
+                                            :key="path"
+                                            :variant="
+                                                form.fields.some(
+                                                    (field) =>
+                                                        field.path === path,
+                                                )
+                                                    ? 'primary'
+                                                    : 'secondary'
+                                            "
+                                            :aria-pressed="
+                                                form.fields.some(
+                                                    (field) =>
+                                                        field.path === path,
+                                                )
+                                            "
+                                            @click="useSampleField(path)"
+                                            >{{ path }}</Button
+                                        >
+                                    </div>
+                                </details>
+                            </div>
+                            <details
+                                class="rounded-2xl border border-outline-glass p-4"
+                            >
+                                <summary class="text-sm font-medium">
+                                    {{ t('redesign.raw_sample') }}
+                                </summary>
+                                <pre
+                                    class="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100"
+                                    >{{
+                                        typeof sampleData === 'string'
+                                            ? sampleData
+                                            : JSON.stringify(
+                                                  sampleData,
+                                                  null,
+                                                  2,
+                                              )
+                                    }}</pre>
+                            </details>
+                        </div>
+                    </section>
+                    <section
+                        v-if="form.source_type === 'website'"
+                        ref="visualSection"
+                        class="panel mb-6 min-w-0 scroll-mt-6 space-y-5 overflow-hidden p-5 xl:col-start-1 xl:row-start-1"
+                    >
+                        <div
+                            class="flex flex-wrap items-start justify-between gap-3"
+                        >
+                            <div>
+                                <h2 class="text-xl font-semibold">
+                                    {{ t('builder.visual_title') }}
+                                </h2>
+                                <p
+                                    class="mt-1 max-w-2xl text-sm text-on-surface-variant"
+                                >
+                                    {{ t('builder.visual_help') }}
+                                </p>
+                            </div>
+                            <div class="flex gap-2">
+                                <Button
+                                    :disabled="browserBusy"
+                                    @click="openWebsite"
+                                    >{{ t('builder.open_browser') }}</Button
+                                ><Button
+                                    variant="secondary"
+                                    :disabled="browserBusy || !browserReady"
+                                    @click="browserAction('snapshot')"
+                                    >{{ t('builder.refresh_snapshot') }}</Button
+                                >
+                            </div>
+                        </div>
+                        <p
+                            v-if="browserError"
+                            role="alert"
+                            class="text-sm text-error-red"
+                        >
+                            {{ browserError }}
+                        </p>
+                        <p
+                            v-if="browser.accessChallenge"
+                            role="alert"
+                            class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                        >
+                            {{ t('builder.access_challenge') }}
+                        </p>
+                        <div
+                            v-if="!browser.screenshot"
+                            class="flex min-h-56 flex-col items-center justify-center rounded-xl border border-dashed border-outline-glass bg-surface-container-low px-6 py-8 text-center"
+                        >
+                            <span
+                                class="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-primary"
+                                ><ScanSearch :size="24" aria-hidden="true"
+                            /></span>
+                            <p class="mt-3 font-semibold">
+                                {{ t('builder.preview_empty') }}
+                            </p>
+                            <p
+                                class="mt-1 max-w-md text-sm text-on-surface-variant"
+                            >
+                                {{ t('builder.preview_empty_help') }}
+                            </p>
+                        </div>
+                        <div
+                            v-if="browser.nativeControl && browserReady"
+                            class="rounded-lg border border-outline-glass bg-surface-container-low p-4"
+                        >
+                            <p class="mb-3 text-sm text-on-surface-variant">
+                                {{ t('builder.native_control_help') }}
+                            </p>
+                            <Button
+                                :disabled="browserBusy"
+                                @click="
+                                    browserAction('act', {
+                                        input: { action: 'focus' },
+                                    })
+                                "
+                                >{{
+                                    t('builder.control_browser_window')
+                                }}</Button
+                            >
+                        </div>
+                        <div
+                            v-if="browser.screenshot"
+                            class="flex flex-wrap gap-2"
+                        >
+                            <Button
+                                :variant="
+                                    pageInteraction ? 'primary' : 'secondary'
+                                "
+                                :aria-pressed="pageInteraction"
+                                :disabled="browserBusy || !browserReady"
+                                @click="setPageInteraction(true)"
+                                >{{ t('builder.use_page') }}</Button
+                            >
+                            <Button
+                                :variant="
+                                    !pageInteraction ? 'primary' : 'secondary'
+                                "
+                                :aria-pressed="!pageInteraction"
+                                :disabled="
+                                    browserBusy ||
+                                    !browserReady ||
+                                    browser.accessChallenge
+                                "
+                                @click="setPageInteraction(false)"
+                                >{{ t('builder.select_data') }}</Button
+                            >
+                        </div>
+                        <div
                             v-if="
-                                form.source_type === 'website' &&
-                                key === 'next_path'
+                                browser.screenshot &&
+                                !browser.accessChallenge &&
+                                !pageInteraction
                             "
-                            class="mt-2"
+                            class="flex flex-wrap items-center gap-2 text-sm"
+                        >
+                            <Button
+                                :variant="
+                                    pickMode === 'records'
+                                        ? 'primary'
+                                        : 'secondary'
+                                "
+                                @click="setPickMode('records')"
+                                >{{ t('builder.pick_records_step') }}</Button
+                            >
+                            <Button
+                                :variant="
+                                    pickMode === 'fields'
+                                        ? 'primary'
+                                        : 'secondary'
+                                "
+                                :disabled="
+                                    !form.website?.record_selector ||
+                                    form.website.record_selector === 'body'
+                                "
+                                @click="setPickMode('fields')"
+                                >{{ t('builder.pick_columns_step') }}</Button
+                            >
+                            <span
+                                v-if="browser.matches.length"
+                                class="rounded-full bg-success/10 px-3 py-1 font-medium text-success"
+                                >{{
+                                    t('builder.matched_records', {
+                                        count: browser.matches.length,
+                                    })
+                                }}</span
+                            >
+                        </div>
+                        <p
+                            v-if="
+                                browser.screenshot &&
+                                !pageInteraction &&
+                                !browser.accessChallenge
+                            "
+                            class="rounded-xl bg-lavender/60 px-4 py-3 text-sm font-medium"
+                        >
+                            {{ pickHint }}
+                        </p>
+                        <div
+                            v-if="browser.screenshot"
+                            class="grid min-w-0 items-start gap-4"
+                        >
+                            <div
+                                class="relative w-fit max-w-full overflow-hidden rounded-xl border border-outline-glass bg-slate-100 shadow-sm"
+                            >
+                                <button
+                                    type="button"
+                                    class="relative block max-w-full text-left disabled:cursor-not-allowed"
+                                    :class="
+                                        pageInteraction
+                                            ? 'cursor-pointer'
+                                            : 'cursor-crosshair'
+                                    "
+                                    :disabled="
+                                        browserBusy ||
+                                        !browserReady ||
+                                        (!pageInteraction &&
+                                            browser.accessChallenge)
+                                    "
+                                    :aria-label="
+                                        t(
+                                            pageInteraction
+                                                ? 'builder.interact_page'
+                                                : 'builder.inspect_page',
+                                        )
+                                    "
+                                    @click="inspectPoint"
+                                >
+                                    <img
+                                        :src="
+                                            browser.screenshot.startsWith(
+                                                'data:',
+                                            )
+                                                ? browser.screenshot
+                                                : `data:image/jpeg;base64,${browser.screenshot}`
+                                        "
+                                        :alt="t('builder.snapshot_alt')"
+                                        class="block max-h-[65vh] max-w-full object-contain"
+                                    />
+                                    <div
+                                        v-for="match in pageInteraction
+                                            ? []
+                                            : browser.matches"
+                                        :key="match.index"
+                                        class="pointer-events-none absolute border-2 border-fuchsia-500 bg-fuchsia-300/20"
+                                        :style="{
+                                            left: `${(match.x / browser.viewport.width) * 100}%`,
+                                            top: `${(match.y / browser.viewport.height) * 100}%`,
+                                            width: `${(match.width / browser.viewport.width) * 100}%`,
+                                            height: `${(match.height / browser.viewport.height) * 100}%`,
+                                        }"
+                                    />
+                                </button>
+                            </div>
+                            <div
+                                v-if="pageInteraction"
+                                class="space-y-3 rounded-xl border border-outline-glass bg-surface-container-low p-4"
+                            >
+                                <h3 class="font-semibold">
+                                    {{ t('builder.use_page') }}
+                                </h3>
+                                <p class="text-sm text-on-surface-variant">
+                                    {{ t('builder.interact_help') }}
+                                </p>
+                                <Button
+                                    variant="secondary"
+                                    :disabled="
+                                        browserBusy ||
+                                        !browserReady ||
+                                        browser.accessChallenge
+                                    "
+                                    @click="browserAction('save')"
+                                    >{{
+                                        t('builder.save_browser_session')
+                                    }}</Button
+                                >
+                                <p
+                                    v-if="browserSessionSaved"
+                                    role="status"
+                                    class="text-sm"
+                                >
+                                    {{
+                                        t(
+                                            browserReady
+                                                ? 'builder.browser_session_retained'
+                                                : 'builder.browser_session_saved',
+                                        )
+                                    }}
+                                </p>
+                            </div>
+                            <div
+                                v-else-if="!browser.accessChallenge"
+                                class="rounded-xl border border-outline-glass bg-surface-container-low p-4"
+                            >
+                                <h3 class="font-semibold">{{ pickTitle }}</h3>
+                                <div
+                                    v-if="browser.candidates.length"
+                                    class="mt-4 max-h-[56vh] space-y-2 overflow-y-auto"
+                                >
+                                    <div
+                                        v-for="candidate in visibleCandidates"
+                                        :key="candidate.selector"
+                                        class="rounded-lg border border-outline-glass bg-white p-3 text-sm"
+                                    >
+                                        <p class="line-clamp-2 font-medium">
+                                            {{
+                                                candidate.text || candidate.tag
+                                            }}
+                                        </p>
+                                        <p
+                                            class="mt-1 text-xs text-on-surface-variant"
+                                        >
+                                            {{
+                                                t('builder.match_count', {
+                                                    count: candidate.count,
+                                                })
+                                            }}
+                                        </p>
+                                        <Button
+                                            class="mt-3 w-full"
+                                            :disabled="browserBusy"
+                                            @click="chooseCandidate(candidate)"
+                                            >{{ pickAction }}</Button
+                                        >
+                                        <details
+                                            class="mt-2 text-xs text-on-surface-variant"
+                                        >
+                                            <summary class="cursor-pointer">
+                                                {{
+                                                    t(
+                                                        'builder.advanced_selectors',
+                                                    )
+                                                }}
+                                            </summary>
+                                            <code
+                                                class="mt-1 block break-all"
+                                                >{{ candidate.selector }}</code
+                                            >
+                                            <Button
+                                                class="mt-2"
+                                                variant="secondary"
+                                                :disabled="browserBusy"
+                                                @click="
+                                                    browserAction('act', {
+                                                        input: {
+                                                            action: 'click',
+                                                            selector:
+                                                                candidate.selector,
+                                                        },
+                                                    })
+                                                "
+                                                >{{
+                                                    t('builder.click_element')
+                                                }}</Button
+                                            >
+                                        </details>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <details
+                            class="rounded-lg border border-outline-glass p-4"
+                        >
+                            <summary class="font-medium">
+                                {{ t('builder.advanced_selectors') }}
+                            </summary>
+                            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <Label for="record_selector">{{
+                                        t('builder.record_selector')
+                                    }}</Label
+                                    ><Input
+                                        id="record_selector"
+                                        v-model="
+                                            (
+                                                form.website as Record<
+                                                    string,
+                                                    string
+                                                >
+                                            ).record_selector
+                                        "
+                                        placeholder="article.product"
+                                    />
+                                </div>
+                                <div>
+                                    <Label for="detail_url_selector">{{
+                                        t('builder.detail_url_selector')
+                                    }}</Label
+                                    ><Input
+                                        id="detail_url_selector"
+                                        v-model="
+                                            (
+                                                form.website as Record<
+                                                    string,
+                                                    string
+                                                >
+                                            ).detail_url_selector
+                                        "
+                                        placeholder="a.product-link"
+                                    />
+                                </div>
+                                <div>
+                                    <Label for="signed_in_selector">{{
+                                        t('builder.signed_in_selector')
+                                    }}</Label
+                                    ><Input
+                                        id="signed_in_selector"
+                                        v-model="
+                                            (
+                                                form.website as Record<
+                                                    string,
+                                                    string
+                                                >
+                                            ).signed_in_selector
+                                        "
+                                        :placeholder="
+                                            t('builder.signed_in_placeholder')
+                                        "
+                                    />
+                                </div>
+                            </div>
+                        </details>
+                        <details
+                            class="rounded-lg border border-outline-glass p-4"
+                        >
+                            <summary class="cursor-pointer font-medium">
+                                {{ t('builder.login_title') }}
+                            </summary>
+                            <p class="my-3 text-sm text-on-surface-variant">
+                                {{ t('builder.login_help') }}
+                            </p>
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <p class="text-sm font-medium">
+                                        {{ t('builder.login_selector') }}
+                                    </p>
+                                    <p
+                                        class="mt-1 truncate rounded-lg bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant"
+                                    >
+                                        {{
+                                            loginForm.selector ||
+                                            t('builder.no_element_selected')
+                                        }}
+                                    </p>
+                                    <Button
+                                        class="mt-2"
+                                        variant="secondary"
+                                        :disabled="!browserReady || browserBusy"
+                                        @click="setPickMode('login')"
+                                        >{{ t('builder.pick_visual') }}</Button
+                                    >
+                                    <details class="mt-2 text-sm">
+                                        <summary
+                                            class="cursor-pointer text-on-surface-variant"
+                                        >
+                                            {{
+                                                t('builder.advanced_selectors')
+                                            }}
+                                        </summary>
+                                        <Label for="login-selector">{{
+                                            t('builder.login_selector')
+                                        }}</Label
+                                        ><Input
+                                            id="login-selector"
+                                            v-model="loginForm.selector"
+                                            :placeholder="
+                                                t(
+                                                    'builder.login_selector_placeholder',
+                                                )
+                                            "
+                                        />
+                                    </details>
+                                </div>
+                                <div>
+                                    <Label for="login-value">{{
+                                        t('builder.login_value')
+                                    }}</Label
+                                    ><Input
+                                        id="login-value"
+                                        v-model="loginForm.value"
+                                        type="password"
+                                        autocomplete="off"
+                                    />
+                                </div>
+                            </div>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                    variant="secondary"
+                                    :disabled="
+                                        browserBusy ||
+                                        !browserReady ||
+                                        !loginForm.selector ||
+                                        !loginForm.value
+                                    "
+                                    @click="sendLoginValue"
+                                    >{{ t('builder.type_login_value') }}</Button
+                                ><Button
+                                    variant="secondary"
+                                    :disabled="browserBusy || !browserReady"
+                                    @click="
+                                        browserAction('act', {
+                                            input: {
+                                                action: 'press',
+                                                key: 'Enter',
+                                            },
+                                        })
+                                    "
+                                    >{{ t('builder.submit_login') }}</Button
+                                ><Button
+                                    variant="secondary"
+                                    :disabled="browserBusy || !browserReady"
+                                    @click="browserAction('save')"
+                                    >{{ t('builder.save_login') }}</Button
+                                ><Button
+                                    variant="secondary"
+                                    :disabled="browserBusy || !browserReady"
+                                    @click="
+                                        browserAction('act', {
+                                            input: {
+                                                action: 'scroll',
+                                                deltaY: 650,
+                                            },
+                                        })
+                                    "
+                                    >{{ t('builder.scroll_page') }}</Button
+                                >
+                            </div>
+                        </details>
+                        <details
+                            class="rounded-lg border border-outline-glass p-4"
+                        >
+                            <summary class="cursor-pointer font-medium">
+                                {{ t('builder.detail_fields') }}
+                            </summary>
+                            <p class="my-3 text-sm text-on-surface-variant">
+                                {{ t('builder.detail_fields_help') }}
+                            </p>
+                            <div
+                                class="mb-4 rounded-lg bg-surface-container-low p-3 text-sm"
+                            >
+                                <p class="font-medium">
+                                    {{ t('builder.detail_url_selector') }}
+                                </p>
+                                <p
+                                    class="mt-1 break-all text-on-surface-variant"
+                                >
+                                    {{
+                                        form.website?.detail_url_selector ||
+                                        t('builder.no_element_selected')
+                                    }}
+                                </p>
+                                <Button
+                                    class="mt-2"
+                                    variant="secondary"
+                                    :disabled="!browserReady || browserBusy"
+                                    @click="setPickMode('detail')"
+                                    >{{ t('builder.pick_visual') }}</Button
+                                >
+                                <Button
+                                    class="ml-2 mt-2"
+                                    variant="secondary"
+                                    :disabled="
+                                        !browserReady ||
+                                        browserBusy ||
+                                        !form.website?.detail_url_selector
+                                    "
+                                    @click="
+                                        browserAction('act', {
+                                            input: {
+                                                action: 'click',
+                                                selector:
+                                                    form.website
+                                                        ?.detail_url_selector,
+                                            },
+                                        })
+                                    "
+                                    >{{ t('builder.open_detail_page') }}</Button
+                                >
+                            </div>
+                            <Button
+                                variant="secondary"
+                                @click="addDetailField"
+                                >{{ t('builder.add_field') }}</Button
+                            >
+                            <div
+                                v-for="(field, index) in detailFields"
+                                :key="index"
+                                class="mt-3 grid gap-3 rounded-lg border border-outline-glass p-3 sm:grid-cols-2 xl:grid-cols-4"
+                            >
+                                <div>
+                                    <Label :for="`detail-name-${index}`">{{
+                                        t('builder.field_name')
+                                    }}</Label
+                                    ><Input
+                                        :id="`detail-name-${index}`"
+                                        v-model="field.name"
+                                    />
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium">
+                                        {{ t('builder.source_element') }}
+                                    </p>
+                                    <p
+                                        class="mt-1 break-all text-sm text-on-surface-variant"
+                                    >
+                                        {{
+                                            field.path ||
+                                            t('builder.no_element_selected')
+                                        }}
+                                    </p>
+                                    <Button
+                                        class="mt-2"
+                                        variant="secondary"
+                                        :disabled="!browserReady || browserBusy"
+                                        @click="
+                                            startFieldSelection(
+                                                `detail:${field.name}`,
+                                            )
+                                        "
+                                        >{{
+                                            selected === `detail:${field.name}`
+                                                ? t('builder.field_selected')
+                                                : t('builder.pick_visual')
+                                        }}</Button
+                                    >
+                                    <details class="mt-2 text-sm">
+                                        <summary
+                                            class="cursor-pointer text-on-surface-variant"
+                                        >
+                                            {{
+                                                t('builder.advanced_selectors')
+                                            }}
+                                        </summary>
+                                        <Label :for="`detail-path-${index}`">{{
+                                            t('builder.field_path')
+                                        }}</Label>
+                                        <Input
+                                            :id="`detail-path-${index}`"
+                                            v-model="field.path"
+                                        />
+                                    </details>
+                                </div>
+                                <div>
+                                    <Label :for="`detail-type-${index}`">{{
+                                        t('builder.field_type')
+                                    }}</Label
+                                    ><select
+                                        :id="`detail-type-${index}`"
+                                        v-model="field.type"
+                                        class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                                    >
+                                        <option
+                                            v-for="type in [
+                                                'string',
+                                                'number',
+                                                'boolean',
+                                                'date',
+                                                'url',
+                                            ]"
+                                            :key="type"
+                                            :value="type"
+                                        >
+                                            {{ t(`builder.type_${type}`) }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <label
+                                    class="flex min-h-12 items-center gap-2 pt-5 text-sm"
+                                    ><input
+                                        v-model="field.required"
+                                        type="checkbox"
+                                        class="h-4 w-4 accent-primary"
+                                    />{{ t('builder.required') }}</label
+                                >
+                                <Button
+                                    variant="danger"
+                                    class="self-end"
+                                    @click="removeDetailField(index)"
+                                    >{{ t('builder.remove_field') }}</Button
+                                >
+                            </div>
+                        </details>
+                    </section>
+                    <section
+                        class="panel mb-5 min-w-0 space-y-4 p-5 xl:col-start-2 xl:row-start-1"
+                    >
+                        <CollectorFieldEditor
+                            v-model="form.fields"
+                            :source-type="form.source_type"
+                            @add="addField"
+                            @remove="removeField"
+                            @pick="startFieldSelection"
+                            @transform="setTransform"
+                            @boolean="setBooleanMap"
+                        />
+                    </section>
+                    <details
+                        class="mb-3 rounded-2xl border border-outline-glass bg-white/60 px-5 py-2 xl:col-span-2"
+                    >
+                        <summary class="text-sm font-semibold">
+                            {{ t('redesign.advanced_rules') }}
+                        </summary>
+                        <div class="space-y-4 pt-4">
+                            <fieldset class="space-y-3">
+                                <legend class="text-sm font-semibold">
+                                    {{ t('builder.comparison') }}
+                                </legend>
+                                <p class="text-sm text-on-surface-variant">
+                                    {{ t('builder.comparison_help') }}
+                                </p>
+                                <div
+                                    v-for="field in form.fields"
+                                    :key="field.name"
+                                    class="flex flex-wrap gap-5 text-sm"
+                                >
+                                    <span class="min-w-32 font-medium">{{
+                                        field.name
+                                    }}</span
+                                    ><label class="flex items-center gap-2"
+                                        ><input
+                                            type="checkbox"
+                                            :checked="
+                                                form.comparison.identity.includes(
+                                                    field.name,
+                                                )
+                                            "
+                                            @change="
+                                                updateComparison(
+                                                    form.comparison.identity,
+                                                    'identity',
+                                                    field.name,
+                                                    (
+                                                        $event.target as HTMLInputElement
+                                                    ).checked,
+                                                )
+                                            "
+                                        />{{ t('builder.identity') }}</label
+                                    ><label class="flex items-center gap-2"
+                                        ><input
+                                            type="checkbox"
+                                            :checked="
+                                                form.comparison.fields.includes(
+                                                    field.name,
+                                                )
+                                            "
+                                            @change="
+                                                updateComparison(
+                                                    form.comparison.fields,
+                                                    'fields',
+                                                    field.name,
+                                                    (
+                                                        $event.target as HTMLInputElement
+                                                    ).checked,
+                                                )
+                                            "
+                                        />{{ t('builder.compare') }}</label
+                                    >
+                                </div>
+                            </fieldset>
+                            <div
+                                class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
+                            >
+                                <div
+                                    v-for="key in [
+                                        'rows',
+                                        'bytes',
+                                        'requests',
+                                        'pages',
+                                        'seconds',
+                                    ]"
+                                    :key="key"
+                                >
+                                    <Label :for="`limit-${key}`">{{
+                                        t(`builder.limit_${key}`)
+                                    }}</Label
+                                    ><Input
+                                        :id="`limit-${key}`"
+                                        v-model.number="form.limits[key]"
+                                        type="number"
+                                        min="1"
+                                    />
+                                </div>
+                            </div>
+                            <label class="flex items-center gap-2 text-sm"
+                                ><input
+                                    v-model="form.validation.allow_empty"
+                                    type="checkbox"
+                                    class="h-4 w-4 accent-primary"
+                                />{{ t('builder.allow_empty') }}</label
+                            >
+                        </div>
+                    </details>
+                    <details
+                        class="mb-3 min-w-0 rounded-2xl border border-outline-glass bg-white/60 px-5 py-2 xl:col-span-2"
+                    >
+                        <summary class="text-sm font-semibold">
+                            {{ t('builder.pagination') }}
+                        </summary>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <Label for="pagination_mode">{{
+                                    t('builder.pagination_mode')
+                                }}</Label
+                                ><select
+                                    id="pagination_mode"
+                                    v-model="form.pagination.mode"
+                                    class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                                >
+                                    <option
+                                        v-for="mode in [
+                                            'none',
+                                            'page',
+                                            'offset',
+                                            'next_link',
+                                            'cursor',
+                                            'next_page',
+                                            'load_more',
+                                            'scroll',
+                                        ]"
+                                        :key="mode"
+                                        :value="mode"
+                                        :disabled="
+                                            form.source_type === 'website'
+                                                ? ![
+                                                      'none',
+                                                      'next_page',
+                                                      'load_more',
+                                                      'scroll',
+                                                  ].includes(mode)
+                                                : [
+                                                      'next_page',
+                                                      'load_more',
+                                                      'scroll',
+                                                  ].includes(mode) ||
+                                                  (form.source_type !==
+                                                      'json' &&
+                                                      [
+                                                          'next_link',
+                                                          'cursor',
+                                                      ].includes(mode))
+                                        "
+                                    >
+                                        {{ t(`builder.pagination_${mode}`) }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div v-for="key in paginationKeys" :key="key">
+                                <Label :for="`pagination-${key}`">{{
+                                    t(`builder.pagination_${key}`)
+                                }}</Label
+                                ><Input
+                                    :id="`pagination-${key}`"
+                                    v-model="form.pagination[key]"
+                                    :type="
+                                        [
+                                            'start',
+                                            'step',
+                                            'max_actions',
+                                        ].includes(key)
+                                            ? 'number'
+                                            : 'text'
+                                    "
+                                />
+                                <Button
+                                    v-if="
+                                        form.source_type === 'website' &&
+                                        key === 'next_path'
+                                    "
+                                    class="mt-2"
+                                    variant="secondary"
+                                    :disabled="!browserReady || browserBusy"
+                                    @click="setPickMode('pagination')"
+                                    >{{ t('builder.pick_visual') }}</Button
+                                >
+                            </div>
+                        </div>
+                    </details>
+                    <details
+                        class="mb-3 min-w-0 rounded-2xl border border-outline-glass bg-white/60 px-5 py-2 xl:col-span-2"
+                    >
+                        <summary class="text-sm font-semibold">
+                            {{ t('builder.credentials_title') }}
+                        </summary>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <Label for="connection-kind">{{
+                                    t('builder.connection_kind')
+                                }}</Label
+                                ><select
+                                    id="connection-kind"
+                                    v-model="connectionForm.kind"
+                                    class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                                >
+                                    <option value="bearer">
+                                        {{ t('builder.token') }}
+                                    </option>
+                                    <option value="api_key">
+                                        {{ t('builder.api_key') }}
+                                    </option>
+                                    <option value="basic">
+                                        {{ t('builder.basic_auth') }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div v-if="connectionForm.kind === 'basic'">
+                                <Label for="connection-username">{{
+                                    t('builder.username')
+                                }}</Label
+                                ><Input
+                                    id="connection-username"
+                                    v-model="connectionForm.username"
+                                    autocomplete="username"
+                                />
+                            </div>
+                            <div v-if="connectionForm.kind === 'basic'">
+                                <Label for="connection-password">{{
+                                    t('fields.password')
+                                }}</Label
+                                ><Input
+                                    id="connection-password"
+                                    v-model="connectionForm.password"
+                                    type="password"
+                                    autocomplete="new-password"
+                                />
+                            </div>
+                            <div v-if="connectionForm.kind === 'api_key'">
+                                <Label for="connection-header">{{
+                                    t('builder.header_name')
+                                }}</Label
+                                ><Input
+                                    id="connection-header"
+                                    v-model="connectionForm.header"
+                                />
+                            </div>
+                            <div v-if="connectionForm.kind !== 'basic'">
+                                <Label for="connection-secret">{{
+                                    t('builder.secret')
+                                }}</Label
+                                ><Input
+                                    id="connection-secret"
+                                    v-model="connectionForm.token"
+                                    type="password"
+                                    autocomplete="new-password"
+                                />
+                            </div>
+                        </div>
+                        <p class="text-sm text-on-surface-variant">
+                            {{ t('builder.credential_help') }}
+                        </p>
+                        <Button
                             variant="secondary"
-                            :disabled="!browserReady || browserBusy"
-                            @click="setPickMode('pagination')"
-                            >{{ t('builder.pick_visual') }}</Button
+                            :disabled="
+                                browserBusy ||
+                                (connectionForm.kind === 'basic'
+                                    ? !connectionForm.username ||
+                                      !connectionForm.password
+                                    : !connectionForm.token)
+                            "
+                            @click="saveConnection"
+                            >{{ t('builder.save_connection') }}</Button
                         >
-                    </div>
-                </div>
-            </section>
-            <section class="panel mb-6 space-y-4 p-5 sm:p-7">
-                <h2 class="text-xl font-semibold">
-                    {{ t('builder.credentials_title') }}
-                </h2>
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <div>
-                        <Label for="connection-kind">{{
-                            t('builder.connection_kind')
-                        }}</Label
-                        ><select
-                            id="connection-kind"
-                            v-model="connectionForm.kind"
-                            class="h-12 w-full rounded-lg border border-outline-glass bg-white px-3"
+                        <div
+                            v-if="connections.length"
+                            class="flex flex-wrap gap-2"
                         >
-                            <option value="bearer">
-                                {{ t('builder.token') }}
-                            </option>
-                            <option value="api_key">
-                                {{ t('builder.api_key') }}
-                            </option>
-                            <option value="basic">
-                                {{ t('builder.basic_auth') }}
-                            </option>
-                        </select>
-                    </div>
-                    <div v-if="connectionForm.kind === 'basic'">
-                        <Label for="connection-username">{{
-                            t('builder.username')
-                        }}</Label
-                        ><Input
-                            id="connection-username"
-                            v-model="connectionForm.username"
-                            autocomplete="username"
-                        />
-                    </div>
-                    <div v-if="connectionForm.kind === 'basic'">
-                        <Label for="connection-password">{{
-                            t('fields.password')
-                        }}</Label
-                        ><Input
-                            id="connection-password"
-                            v-model="connectionForm.password"
-                            type="password"
-                            autocomplete="new-password"
-                        />
-                    </div>
-                    <div v-if="connectionForm.kind === 'api_key'">
-                        <Label for="connection-header">{{
-                            t('builder.header_name')
-                        }}</Label
-                        ><Input
-                            id="connection-header"
-                            v-model="connectionForm.header"
-                        />
-                    </div>
-                    <div v-if="connectionForm.kind !== 'basic'">
-                        <Label for="connection-secret">{{
-                            t('builder.secret')
-                        }}</Label
-                        ><Input
-                            id="connection-secret"
-                            v-model="connectionForm.token"
-                            type="password"
-                            autocomplete="new-password"
-                        />
-                    </div>
+                            <span
+                                v-for="connection in connections"
+                                :key="connection.id"
+                                class="rounded-full bg-surface-container-low px-3 py-1 text-sm"
+                                >{{ connection.name }} ·
+                                {{ connection.origin }} · {{ connection.status
+                                }}<button
+                                    v-if="connection.status === 'ready'"
+                                    class="ml-2 text-link"
+                                    type="button"
+                                    @click="
+                                        router.post(
+                                            `/collectors/${recipe.id}/connections/${connection.id}/revoke`,
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                onSuccess: () => {
+                                                    if (
+                                                        form.connection_id ===
+                                                        connection.id
+                                                    )
+                                                        form.connection_id =
+                                                            null;
+                                                },
+                                            },
+                                        )
+                                    "
+                                >
+                                    {{ t('builder.revoke') }}
+                                </button></span
+                            >
+                        </div>
+                    </details>
                 </div>
-                <p class="text-sm text-on-surface-variant">
-                    {{ t('builder.credential_help') }}
+            </fieldset>
+            <div
+                class="sticky bottom-0 z-20 mt-3 grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-end gap-2 rounded-t-2xl border border-outline-glass bg-white p-4 shadow-[0_-4px_20px_rgba(48,43,66,0.05)] sm:bottom-3 sm:rounded-2xl"
+            >
+                <p
+                    role="status"
+                    class="col-start-1 row-start-1 mr-auto self-center text-sm"
+                    :class="
+                        saveFailed
+                            ? 'text-error-red'
+                            : 'text-on-surface-variant'
+                    "
+                >
+                    {{
+                        t(
+                            processing
+                                ? 'common.saving'
+                                : saveFailed
+                                  ? 'redesign.save_error'
+                                  : dirty
+                                    ? 'redesign.unsaved'
+                                    : 'redesign.saved',
+                        )
+                    }}
                 </p>
                 <Button
+                    class="col-start-2 row-start-1 justify-self-end px-3 sm:px-5"
+                    v-if="step === 1"
                     variant="secondary"
-                    :disabled="
-                        browserBusy ||
-                        (connectionForm.kind === 'basic'
-                            ? !connectionForm.username ||
-                              !connectionForm.password
-                            : !connectionForm.token)
-                    "
-                    @click="saveConnection"
-                    >{{ t('builder.save_connection') }}</Button
+                    :disabled="processing"
+                    @click="step = 0"
+                    >{{ t('redesign.back') }}</Button
                 >
-                <div v-if="connections.length" class="flex flex-wrap gap-2">
-                    <span
-                        v-for="connection in connections"
-                        :key="connection.id"
-                        class="rounded-full bg-surface-container-low px-3 py-1 text-sm"
-                        >{{ connection.name }} · {{ connection.origin }} ·
-                        {{ connection.status
-                        }}<button
-                            v-if="connection.status === 'ready'"
-                            class="ml-2 text-link"
-                            type="button"
-                            @click="
-                                router.post(
-                                    `/collectors/${recipe.id}/connections/${connection.id}/revoke`,
-                                    {},
-                                    {
-                                        preserveScroll: true,
-                                        onSuccess: () => {
-                                            if (
-                                                form.connection_id ===
-                                                connection.id
-                                            )
-                                                form.connection_id = null;
-                                        },
-                                    },
-                                )
-                            "
-                        >
-                            {{ t('builder.revoke') }}
-                        </button></span
-                    >
-                </div>
-            </section>
-            <div
-                class="sticky bottom-3 z-10 flex flex-wrap justify-end gap-3 rounded-xl border border-outline-glass bg-white/95 p-3 shadow-lg backdrop-blur"
-            >
                 <Button
+                    class="col-start-1 row-start-2 px-3 sm:px-5"
                     variant="secondary"
                     :disabled="processing || !canSave"
                     @click="postSetup"
@@ -2313,11 +2202,24 @@ function setPickMode(mode: PickMode): void {
                             : t('builder.save_draft')
                     }}</Button
                 ><Button
-                    variant="secondary"
+                    class="col-start-2 row-start-2 px-3 sm:px-5"
+                    v-if="step === 0"
+                    :disabled="processing || !form.url"
+                    @click="step = 1"
+                    >{{ t('redesign.continue') }}</Button
+                ><Button
+                    class="col-start-2 row-start-2 px-3 sm:px-5"
+                    v-else
                     :disabled="processing || !canPreview"
                     @click="activatePreview"
                     >{{ t('builder.preview') }}</Button
                 >
+                <p
+                    v-if="step === 1 && !canPreview"
+                    class="col-span-2 w-full text-sm text-on-surface-variant"
+                >
+                    {{ t('redesign.preview_hint') }}
+                </p>
             </div>
         </div>
     </AppLayout>

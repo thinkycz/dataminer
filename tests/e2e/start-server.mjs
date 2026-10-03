@@ -32,7 +32,13 @@ if (migration.status !== 0) {
 const browserService = await startTestBrowserService();
 const server = spawn(
     'php',
-    ['-S', '127.0.0.1:8000', '-t', 'public', 'tests/e2e/server.php'],
+    [
+        '-S',
+        `127.0.0.1:${process.env.DATAMINER_E2E_PORT ?? 8000}`,
+        '-t',
+        'public',
+        'tests/e2e/server.php',
+    ],
     {
         env: {
             ...process.env,

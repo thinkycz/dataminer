@@ -6,12 +6,14 @@ defineProps<{ title: string; description?: string }>();
         class="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-start"
     >
         <div class="min-w-0">
-            <h1 class="text-3xl font-semibold tracking-tight break-words">
+            <h1
+                class="font-heading text-3xl font-bold leading-tight tracking-tight break-words sm:text-[2.25rem]"
+            >
                 {{ title }}
             </h1>
             <p
                 v-if="description"
-                class="mt-2 max-w-2xl text-on-surface-variant"
+                class="mt-2 max-w-2xl break-words text-on-surface-variant"
             >
                 {{ description }}
             </p>

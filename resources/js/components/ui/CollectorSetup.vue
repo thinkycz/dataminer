@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useDraftGuard } from '@/composables/useDraftGuard';
+import { suggestedCollectorName } from '@/lib/collector-workflow';
+import { Globe2, Braces, FileSpreadsheet, Rss } from '@lucide/vue';
 import Button from '@/components/ui/Button.vue';
 import FieldError from '@/components/ui/FieldError.vue';
 import Input from '@/components/ui/Input.vue';
@@ -27,6 +30,30 @@ const form = reactive({
     source_type: 'website',
     instructions: '',
 });
+useDraftGuard(() => JSON.stringify(form));
+let lastSuggestion = '';
+watch(
+    () => form.start_url,
+    (url) => {
+        const suggested = suggestedCollectorName(url);
+        if (!form.name || form.name === lastSuggestion) {
+            form.name = suggested;
+            lastSuggestion = suggested;
+        }
+    },
+);
+const icons: Record<string, typeof Globe2> = {
+    website: Globe2,
+    json: Braces,
+    csv: FileSpreadsheet,
+    xml: Rss,
+};
+const tones: Record<string, string> = {
+    website: 'bg-lavender',
+    json: 'bg-peach',
+    csv: 'bg-mint',
+    xml: 'bg-sky',
+};
 const formElement = ref<HTMLFormElement | null>(null);
 function submit(): void {
     if (props.processing || !formElement.value?.reportValidity()) return;
@@ -36,7 +63,7 @@ function submit(): void {
 <template>
     <form
         ref="formElement"
-        class="panel space-y-6 p-6 sm:p-8"
+        class="panel space-y-6 p-5 sm:p-8"
         @submit.prevent="submit"
     >
         <fieldset
@@ -49,14 +76,14 @@ function submit(): void {
             <p id="source-help" class="mt-1 text-sm text-on-surface-variant">
                 {{ t('setup.source_help') }}
             </p>
-            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <label
                     v-for="source in sourceTypes"
                     :key="source"
-                    class="flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors focus-within:ring-2 focus-within:ring-primary"
+                    class="relative block min-w-0 cursor-pointer rounded-2xl border p-3 transition-colors focus-within:ring-2 focus-within:ring-primary sm:p-4"
                     :class="
                         form.source_type === source
-                            ? 'border-primary bg-primary/5'
+                            ? 'border-primary bg-lavender/50 ring-1 ring-primary'
                             : 'border-outline-glass bg-white'
                     "
                 >
@@ -67,35 +94,32 @@ function submit(): void {
                         :value="source"
                         :aria-label="t(`builder.${source}`)"
                         :aria-invalid="!!errors.source_type"
-                        class="mt-1 accent-primary"
+                        class="absolute top-4 right-4 accent-primary"
                     />
-                    <span>
+                    <span class="flex-1"
+                        ><span
+                            class="pastel-icon mb-3 h-10 w-10"
+                            :class="tones[source]"
+                            ><component
+                                :is="icons[source]"
+                                :size="22"
+                                aria-hidden="true"
+                        /></span>
                         <span class="block font-semibold">{{
                             t(`builder.${source}`)
                         }}</span>
                         <span
-                            class="mt-1 block text-sm text-on-surface-variant"
+                            class="mt-1 hidden text-xs leading-relaxed text-on-surface-variant sm:block sm:text-sm"
                             >{{ t(`setup.${source}_description`) }}</span
                         >
                     </span>
                 </label>
             </div>
+            <p class="mt-3 text-sm text-on-surface-variant sm:hidden">
+                {{ t(`setup.${form.source_type}_description`) }}
+            </p>
             <FieldError id="source-error" :message="errors.source_type" />
         </fieldset>
-        <div>
-            <Label for="name">{{ t('recipes.name') }}</Label>
-            <Input
-                id="name"
-                v-model="form.name"
-                required
-                minlength="2"
-                maxlength="160"
-                :placeholder="t('setup.name_example')"
-                :invalid="!!errors.name"
-                described-by="name-error"
-            />
-            <FieldError id="name-error" :message="errors.name" />
-        </div>
         <div>
             <Label for="start_url">{{ t('setup.source_url') }}</Label>
             <Input
@@ -109,6 +133,20 @@ function submit(): void {
                 described-by="url-error"
             />
             <FieldError id="url-error" :message="errors.start_url" />
+        </div>
+        <div>
+            <Label for="name">{{ t('recipes.name') }}</Label>
+            <Input
+                id="name"
+                v-model="form.name"
+                required
+                minlength="2"
+                maxlength="160"
+                :placeholder="t('setup.name_example')"
+                :invalid="!!errors.name"
+                described-by="name-error"
+            />
+            <FieldError id="name-error" :message="errors.name" />
         </div>
         <details :open="!!errors.instructions">
             <summary class="cursor-pointer text-sm font-medium">

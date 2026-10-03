@@ -7,6 +7,9 @@ test.describe('Password reset flow', () => {
         page,
     }) => {
         const email = await registerPilot(page, 'reset');
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await page.getByRole('button', { name: 'Log out' }).click();
         await page.goto('/forgot-password');
         await page.getByLabel('Email').fill(email);
@@ -18,6 +21,9 @@ test.describe('Password reset flow', () => {
         await page.getByLabel('New password').fill('reset-password1');
         await page.getByRole('button', { name: 'Update password' }).click();
         await expect(page).toHaveURL(/\/collectors$/);
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await page.getByRole('button', { name: 'Log out' }).click();
         await page.getByLabel('Email').fill(email);
         await page.getByLabel('Password').fill('reset-password1');
@@ -25,6 +31,9 @@ test.describe('Password reset flow', () => {
         await expect(
             page.getByRole('heading', { name: 'Data collectors' }),
         ).toBeVisible();
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await page.getByRole('button', { name: 'Log out' }).click();
         await page.goto(resetLink);
         await page.getByLabel('New password').fill('another-password1');

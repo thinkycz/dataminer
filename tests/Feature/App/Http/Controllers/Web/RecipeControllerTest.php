@@ -8,10 +8,13 @@ use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\ScrapeRun;
 use App\Models\User;
+use App\Scraping\RecipeDefinition;
+use Database\Factories\CollectorScheduleFactory;
 use Database\Factories\RecipeFactory;
 use Database\Factories\RecipeVersionFactory;
 use Database\Factories\ScrapeRunFactory;
 use Database\Factories\UserFactory;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Ai\ToolChoice;
 use Thinkycz\LaravelCore\Support\Typer;
@@ -145,4 +148,54 @@ use Thinkycz\LaravelCore\Support\Typer;
     \expect($recipe->refresh()->getStatus())->toBe(Recipe::STATUS_DRAFT)
         ->and($recipe->getAiConversationId())->toBeNull();
     \expect((new RecipeGenerationAgent())->toolChoice()->mode)->toBe(ToolChoice::auto);
+});
+
+\test('collector cards summarize full collections and schedules without per-card queries', function (): void {
+    $user = UserFactory::new()->createOne();
+    $definition = RecipeDefinition::fromArray(['schema_version' => 1, 'source_type' => 'json', 'url' => 'https://example.com/data', 'fields' => [['name' => 'name', 'path' => 'name', 'type' => 'string', 'required' => true]]]);
+    $recipe = RecipeFactory::new()->for($user)->createOne(['setup_draft' => $definition->toArray()]);
+    $version = RecipeVersionFactory::new()->for($recipe)->createOne(['definition_format' => 'definition', 'definition' => $definition->toArray(), 'checksum' => $definition->checksum(), 'status' => RecipeVersion::STATUS_TESTED]);
+    $run = ScrapeRunFactory::new()->createOne(['user_id' => $user->getKey(), 'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey(), 'kind' => ScrapeRun::KIND_FULL, 'row_count' => 7, 'status' => ScrapeRun::STATUS_COMPLETED]);
+    ScrapeRunFactory::new()->createOne(['user_id' => $user->getKey(), 'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey(), 'kind' => ScrapeRun::KIND_TEST, 'created_at' => \now()->addSecond()]);
+    CollectorScheduleFactory::new()->createOne(['user_id' => $user->getKey(), 'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey(), 'status' => 'paused']);
+    $this->be($user, 'users');
+    DB::enableQueryLog();
+    $this->get('/collectors', $this->inertiaHeaders())->assertOk()
+        ->assertJsonPath('props.recipes.data.0.last_run.id', $run->getId())
+        ->assertJsonPath('props.recipes.data.0.last_run.rows', 7)
+        ->assertJsonPath('props.recipes.data.0.source_type', 'json')
+        ->assertJsonPath('props.recipes.data.0.review_ready', true)
+        ->assertJsonPath('props.recipes.data.0.schedule.status', 'paused');
+    $singleCount = \count(DB::getQueryLog());
+    DB::disableQueryLog();
+    RecipeFactory::new()->count(8)->for($user)->create();
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $this->get('/collectors', $this->inertiaHeaders())->assertOk()->assertJsonCount(9, 'props.recipes.data');
+    \expect(\count(DB::getQueryLog()))->toBe($singleCount);
+    DB::disableQueryLog();
+});
+
+\test('workspace tabs survive direct navigation and old history links', function (): void {
+    $user = UserFactory::new()->createOne();
+    $recipe = RecipeFactory::new()->for($user)->createOne();
+    $this->be($user, 'users')->get('/collectors/' . $recipe->getKey() . '?tab=schedule', $this->inertiaHeaders())->assertJsonPath('props.tab', 'schedule');
+    $this->get('/collectors/' . $recipe->getKey() . '/runs', $this->inertiaHeaders())->assertJsonPath('props.tab', 'history');
+    $this->get('/collectors/' . $recipe->getKey() . '?tab=unknown', $this->inertiaHeaders())->assertJsonPath('props.tab', 'overview');
+});
+
+\test('collector cards identify the saved draft source and preserve the active source while edits are pending', function (): void {
+    $user = UserFactory::new()->createOne();
+    $draft = RecipeDefinition::fromArray(['schema_version' => 1, 'source_type' => 'csv', 'url' => 'https://example.com/revised.csv', 'fields' => [['name' => 'name', 'path' => 'name', 'type' => 'string', 'required' => true]]]);
+    $recipe = RecipeFactory::new()->for($user)->createOne(['start_url' => 'https://example.com/original', 'setup_draft' => $draft->toArray()]);
+    $this->be($user, 'users')->get('/collectors', $this->inertiaHeaders())
+        ->assertJsonPath('props.recipes.data.0.start_url', 'https://example.com/revised.csv')
+        ->assertJsonPath('props.recipes.data.0.source_type', 'csv');
+    $active = RecipeDefinition::fromArray(['schema_version' => 1, 'source_type' => 'json', 'url' => 'https://example.com/active.json', 'fields' => [['name' => 'name', 'path' => 'name', 'type' => 'string', 'required' => true]]]);
+    $version = RecipeVersionFactory::new()->for($recipe)->createOne(['definition_format' => 'definition', 'definition' => $active->toArray(), 'checksum' => $active->checksum(), 'status' => RecipeVersion::STATUS_APPROVED]);
+    $recipe->update(['active_version_id' => $version->getKey()]);
+    $this->get('/collectors', $this->inertiaHeaders())
+        ->assertJsonPath('props.recipes.data.0.start_url', 'https://example.com/active.json')
+        ->assertJsonPath('props.recipes.data.0.source_type', 'json')
+        ->assertJsonPath('props.recipes.data.0.review_ready', false);
 });

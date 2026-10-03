@@ -10,6 +10,8 @@ import {
     watch,
 } from 'vue';
 import { useI18n } from 'vue-i18n';
+import WorkflowSteps from '@/components/ui/WorkflowSteps.vue';
+import type { CollectorPreview } from '@/types/collector';
 import ActionErrors from '@/components/ui/ActionErrors.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import Button from '@/components/ui/Button.vue';
@@ -58,6 +60,7 @@ interface Filters {
 const props = defineProps<{
     recipe: { id: number; name: string } | null;
     run: Run;
+    preview: CollectorPreview | null;
     columns: Column[];
     rows: {
         data: Row[];
@@ -128,6 +131,21 @@ function sortBy(key: string): void {
             : 'asc',
     );
 }
+function activate(): void {
+    if (!props.recipe || !props.preview?.can_activate || processing.value)
+        return;
+    processing.value = true;
+    router.post(
+        `/collectors/${props.recipe.id}/versions/${props.preview.version_id}/approve`,
+        {},
+        {
+            onSuccess: () => router.get(`/collectors/${props.recipe!.id}`),
+            onFinish: () => {
+                processing.value = false;
+            },
+        },
+    );
+}
 function cancel(): void {
     if (processing.value) return;
     processing.value = true;
@@ -154,7 +172,7 @@ onMounted(() => {
     if (active.value) {
         events = new EventSource(`/runs/${props.run.id}/stream`);
         events.onmessage = () =>
-            router.reload({ only: ['run', 'rows', 'columns'] });
+            router.reload({ only: ['run', 'rows', 'columns', 'preview'] });
     }
 });
 watch(active, (value) => {
@@ -165,6 +183,56 @@ onBeforeUnmount(() => events?.close());
 <template>
     <AppLayout :title="recipe?.name ?? t('runs.detail_title')">
         <ActionErrors />
+        <WorkflowSteps
+            v-if="preview"
+            :current="preview.is_active ? 3 : 2"
+            :links="
+                recipe
+                    ? {
+                          0: `/collectors/${recipe.id}/setup?step=source`,
+                          1: `/collectors/${recipe.id}/setup`,
+                      }
+                    : {}
+            "
+        />
+        <section
+            v-if="preview && recipe"
+            class="mb-6 rounded-3xl bg-lavender p-5 sm:p-6"
+        >
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-bold">
+                        {{ t('redesign.preview') }} · #{{ preview.version }}
+                    </h2>
+                    <p class="mt-1 max-w-2xl text-sm text-on-surface-variant">
+                        {{
+                            t(
+                                preview.matches_draft
+                                    ? 'redesign.preview_snapshot'
+                                    : 'redesign.stale_preview',
+                            )
+                        }}
+                    </p>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                    <Link
+                        :href="`/collectors/${recipe.id}/setup`"
+                        class="button button-secondary"
+                        >{{ t('redesign.edit_selection') }}</Link
+                    ><Button
+                        v-if="preview.can_activate"
+                        :disabled="processing"
+                        @click="activate"
+                        >{{ t('redesign.activate') }}</Button
+                    ><Link
+                        v-else-if="preview.is_active"
+                        :href="`/collectors/${recipe.id}`"
+                        class="button button-primary"
+                        >{{ t('home.open_collector') }}</Link
+                    >
+                </div>
+            </div>
+        </section>
         <Link
             :href="recipe ? `/collectors/${recipe.id}` : '/runs'"
             class="text-link mb-6 inline-block"
@@ -178,16 +246,30 @@ onBeforeUnmount(() => events?.close());
                 v-if="run.has_csv"
                 :href="`/runs/${run.id}/download/csv`"
                 download
-                class="button button-primary"
+                class="button"
+                :class="
+                    preview?.can_activate
+                        ? 'button-secondary'
+                        : 'button-primary'
+                "
                 ><Download :size="18" />{{ t('runs.download_csv') }}</a
             >
-            <a
-                v-if="run.has_json"
-                :href="`/runs/${run.id}/download/json`"
-                download
-                class="button button-secondary"
-                >{{ t('runs.download_json') }}</a
-            >
+            <details v-if="run.has_json" class="relative">
+                <summary class="button button-secondary">
+                    {{ t('redesign.export_options') }}
+                </summary>
+                <div
+                    class="absolute right-0 z-20 mt-2 min-w-52 rounded-2xl border border-outline-glass bg-white p-2 shadow-lg"
+                >
+                    <a
+                        v-if="run.has_json"
+                        :href="`/runs/${run.id}/download/json`"
+                        download
+                        class="button button-secondary"
+                        >{{ t('runs.download_json') }}</a
+                    >
+                </div>
+            </details>
             <Button
                 v-if="active"
                 variant="secondary"
@@ -196,13 +278,17 @@ onBeforeUnmount(() => events?.close());
                 >{{ t('runs.cancel') }}</Button
             >
         </PageHeader>
-        <section class="panel mb-6 p-6" role="status" aria-live="polite">
+        <section
+            class="mb-5 rounded-2xl border border-outline-glass bg-white px-5 py-4"
+            role="status"
+            aria-live="polite"
+        >
             <div class="flex flex-wrap items-center justify-between gap-4">
-                <div>
+                <div class="flex items-baseline gap-3">
                     <p class="text-sm text-on-surface-variant">
                         {{ t('runs.rows') }}
                     </p>
-                    <p class="mt-1 text-3xl font-semibold tabular-nums">
+                    <p class="text-2xl font-bold tabular-nums">
                         {{ run.row_count.toLocaleString(locale) }}
                     </p>
                 </div>
@@ -210,7 +296,13 @@ onBeforeUnmount(() => events?.close());
             </div>
             <template v-if="active"
                 ><p class="mt-4 text-sm text-on-surface-variant">
-                    {{ t('runs.progress_help') }}
+                    {{
+                        t(
+                            run.status === 'queued'
+                                ? 'result_state.waiting_help'
+                                : 'result_state.running_help',
+                        )
+                    }}
                 </p>
                 <progress
                     class="mt-3 h-2 w-full accent-primary"
@@ -231,7 +323,10 @@ onBeforeUnmount(() => events?.close());
                 {{ t('builder.incomplete') }}
             </p>
         </section>
-        <section v-if="run.comparison" class="panel mb-6 p-5">
+        <section
+            v-if="run.comparison"
+            class="mb-5 rounded-2xl border border-outline-glass bg-white p-4"
+        >
             <h2 class="font-semibold">{{ t('builder.comparison_status') }}</h2>
             <p class="mt-2 text-sm text-on-surface-variant">
                 {{
@@ -241,7 +336,7 @@ onBeforeUnmount(() => events?.close());
                 }}
             </p>
             <dl class="mt-4 grid grid-cols-3 gap-3 text-sm">
-                <div>
+                <div class="rounded-2xl bg-mint p-4">
                     <dt class="text-on-surface-variant">
                         {{ t('builder.added') }}
                     </dt>
@@ -249,7 +344,7 @@ onBeforeUnmount(() => events?.close());
                         {{ run.comparison.added }}
                     </dd>
                 </div>
-                <div>
+                <div class="rounded-2xl bg-lavender p-4">
                     <dt class="text-on-surface-variant">
                         {{ t('builder.changed') }}
                     </dt>
@@ -257,7 +352,7 @@ onBeforeUnmount(() => events?.close());
                         {{ run.comparison.changed }}
                     </dd>
                 </div>
-                <div>
+                <div class="rounded-2xl bg-peach p-4">
                     <dt class="text-on-surface-variant">
                         {{ t('builder.missing') }}
                     </dt>
@@ -267,7 +362,10 @@ onBeforeUnmount(() => events?.close());
                 </div>
             </dl>
         </section>
-        <details v-if="run.diagnostics.length" class="panel mb-6 p-5">
+        <details
+            v-if="run.diagnostics.length"
+            class="mb-5 rounded-2xl border border-outline-glass bg-white p-4"
+        >
             <summary class="cursor-pointer font-semibold">
                 {{ t('builder.diagnostics') }}
             </summary>
@@ -279,20 +377,6 @@ onBeforeUnmount(() => events?.close());
                 </li>
             </ul>
         </details>
-        <div
-            v-if="run.kind === 'test' && run.status === 'completed' && recipe"
-            class="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-5"
-        >
-            <h2 class="font-semibold">{{ t('runs.sample_title') }}</h2>
-            <p class="mt-1 text-sm text-on-surface-variant">
-                {{ t('runs.sample_help') }}
-            </p>
-            <Link
-                :href="`/collectors/${recipe.id}`"
-                class="text-link mt-3 inline-block"
-                >{{ t('runs.back_to_review') }} →</Link
-            >
-        </div>
         <section>
             <div
                 class="mb-4 flex flex-col justify-between gap-4 xl:flex-row xl:items-end"
@@ -322,7 +406,7 @@ onBeforeUnmount(() => events?.close());
                 </form>
             </div>
             <details
-                class="panel mb-4 p-4"
+                class="mb-4 rounded-2xl border border-outline-glass bg-white px-4 py-1"
                 @toggle="advanced = ($event.target as HTMLDetailsElement).open"
             >
                 <summary class="font-medium">
@@ -360,7 +444,7 @@ onBeforeUnmount(() => events?.close());
                 </div>
             </details>
             <div
-                class="panel max-h-[65vh] overflow-auto"
+                class="panel max-h-[65vh] overflow-auto rounded-2xl"
                 tabindex="0"
                 role="region"
                 :aria-label="t('dataset.title')"
@@ -373,7 +457,7 @@ onBeforeUnmount(() => events?.close());
                             t('dataset.title')
                         }}
                     </caption>
-                    <thead class="sticky top-0 z-10 bg-surface-container-low">
+                    <thead class="sticky top-0 z-10 bg-slate-50">
                         <tr>
                             <th
                                 scope="col"
@@ -396,7 +480,7 @@ onBeforeUnmount(() => events?.close());
                             >
                                 <button
                                     type="button"
-                                    class="flex min-h-8 items-center gap-2 font-semibold"
+                                    class="flex min-h-11 items-center gap-2 font-semibold"
                                     @click="sortBy(column.key)"
                                 >
                                     {{ column.label
@@ -460,6 +544,22 @@ onBeforeUnmount(() => events?.close());
                                 >
                                     {{ t(`result_state.${emptyState}_help`) }}
                                 </p>
+                                <Link
+                                    v-if="recipe && !active && !filtered"
+                                    :href="
+                                        run.kind === 'test'
+                                            ? `/collectors/${recipe.id}/setup`
+                                            : `/collectors/${recipe.id}`
+                                    "
+                                    class="button button-secondary mt-4"
+                                    >{{
+                                        t(
+                                            run.kind === 'test'
+                                                ? 'redesign.edit_selection'
+                                                : 'home.open_collector',
+                                        )
+                                    }}</Link
+                                >
                             </td>
                         </tr>
                     </tbody>

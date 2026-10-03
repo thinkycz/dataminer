@@ -1,4 +1,5 @@
 import './bootstrap';
+import { installDraftNavigationGuard } from '@/composables/useDraftGuard';
 import '../css/app.css';
 
 import { createInertiaApp } from '@inertiajs/vue3';
@@ -6,6 +7,8 @@ import { createApp, h } from 'vue';
 import type { DefineComponent } from 'vue';
 import { createAppI18n, isSupportedLocale } from './i18n';
 import type { SharedProps } from './types';
+
+installDraftNavigationGuard();
 
 createInertiaApp({
     title: (title) => (title ? `${title} - Dataminer` : 'Dataminer'),
@@ -34,6 +37,6 @@ createInertiaApp({
             .mount(el);
     },
     progress: {
-        color: '#2563eb',
+        color: '#6d4aff',
     },
 });

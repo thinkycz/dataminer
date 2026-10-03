@@ -22,13 +22,14 @@ test('manual page mode clicks a checkbox inside a frame and preserves the chosen
 }) => {
     await registerPilot(page, 'manual-page');
     await page
-        .getByRole('link', { name: 'New collector', exact: true })
+        .getByRole('link', {
+            name: /New collector|Create your first collector/,
+            exact: true,
+        })
         .click();
     await page.getByLabel('Collector name').fill('Manual source interaction');
     await page.getByLabel('Source URL').fill('https://1.1.1.1/e2e/interaction');
-    await page
-        .getByRole('button', { name: 'Continue to field mapping' })
-        .click();
+    await page.getByRole('button', { name: 'Choose data' }).click();
     await page.waitForURL(/\/collectors\/\d+\/setup$/);
     await page.getByRole('button', { name: 'Open page', exact: true }).click();
     if (process.env.DATAMINER_E2E_NATIVE === '1') {
@@ -117,13 +118,14 @@ test('saved login, visual fields, detail pages and pagination produce downloadab
     test.setTimeout(90000);
     await registerPilot(page, 'website-workflow');
     await page
-        .getByRole('link', { name: 'New collector', exact: true })
+        .getByRole('link', {
+            name: /New collector|Create your first collector/,
+            exact: true,
+        })
         .click();
     await page.getByLabel('Collector name').fill('Signed-in catalog');
     await page.getByLabel('Source URL').fill('https://1.1.1.1/e2e/website');
-    await page
-        .getByRole('button', { name: 'Continue to field mapping' })
-        .click();
+    await page.getByRole('button', { name: 'Choose data' }).click();
     await page.waitForURL(/\/collectors\/\d+\/setup$/);
     await page.getByRole('button', { name: 'Open page', exact: true }).click();
 
@@ -175,8 +177,10 @@ test('saved login, visual fields, detail pages and pagination produce downloadab
         .getByRole('button', { name: 'Add as column', exact: true })
         .first()
         .click();
+    await page.getByText('Column options', { exact: true }).last().click();
     await page.getByLabel('Data type').last().selectOption('number');
 
+    await page.getByText('More pages', { exact: true }).click();
     await page.getByLabel('How to continue').selectOption('next_page');
     await page
         .getByRole('button', { name: 'Pick from screenshot' })
@@ -212,12 +216,12 @@ test('saved login, visual fields, detail pages and pagination produce downloadab
         .click();
     await expect(screenshot).not.toHaveAttribute('src', catalogScreenshot!);
     await detail
-        .getByRole('button', { name: 'Add field', exact: true })
+        .getByRole('button', { name: 'Add column', exact: true })
         .click();
     await detail.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(detail.getByLabel('Column name')).toHaveCount(0);
     await detail
-        .getByRole('button', { name: 'Add field', exact: true })
+        .getByRole('button', { name: 'Add column', exact: true })
         .click();
     await detail.getByLabel('Column name').fill('description');
     await detail
@@ -240,7 +244,7 @@ test('saved login, visual fields, detail pages and pagination produce downloadab
     );
 
     await page
-        .getByRole('button', { name: 'Run test preview', exact: true })
+        .getByRole('button', { name: 'Preview data', exact: true })
         .click();
     await page.waitForURL(/\/runs\/[0-9a-f-]+$/);
     await expect(page.getByRole('status')).toContainText('Complete');

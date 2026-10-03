@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import { FlaskConical, Table2, ArrowUpRight } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
@@ -38,21 +39,38 @@ const { t, locale } = useI18n();
                 :key="run.id"
                 class="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:p-6"
             >
-                <div class="min-w-0">
-                    <Link
-                        :href="`/runs/${run.id}`"
-                        class="text-lg font-semibold break-words hover:text-primary"
-                        >{{ run.recipe_name ?? t('runs.detail_title') }}</Link
-                    >
-                    <p class="mt-1 text-sm text-on-surface-variant">
-                        {{ t(`runs.${run.kind}`)
-                        }}<span v-if="run.finished_at">
-                            ·
-                            {{
-                                new Date(run.finished_at).toLocaleString(locale)
-                            }}</span
+                <div class="flex min-w-0 items-center gap-4">
+                    <span
+                        class="pastel-icon"
+                        :class="
+                            run.kind === 'test'
+                                ? 'bg-lavender text-primary-container'
+                                : 'bg-mint text-emerald-900'
+                        "
+                        ><FlaskConical
+                            v-if="run.kind === 'test'"
+                            :size="21" /><Table2 v-else :size="21"
+                    /></span>
+                    <div class="min-w-0">
+                        <Link
+                            :href="`/runs/${run.id}`"
+                            class="text-lg font-semibold break-words hover:text-primary"
+                            >{{
+                                run.recipe_name ?? t('runs.detail_title')
+                            }}</Link
                         >
-                    </p>
+                        <p class="mt-1 text-sm text-on-surface-variant">
+                            {{ t(`runs.${run.kind}`)
+                            }}<span v-if="run.finished_at">
+                                ·
+                                {{
+                                    new Date(run.finished_at).toLocaleString(
+                                        locale,
+                                    )
+                                }}</span
+                            >
+                        </p>
+                    </div>
                 </div>
                 <div class="flex flex-wrap items-center gap-4">
                     <span class="text-sm">{{
@@ -61,8 +79,8 @@ const { t, locale } = useI18n();
                     ><StatusBadge :status="run.status" /><Link
                         :href="`/runs/${run.id}`"
                         class="button button-secondary"
-                        >{{ t('home.view_results') }}</Link
-                    >
+                        >{{ t('home.view_results') }}<ArrowUpRight :size="16"
+                    /></Link>
                 </div>
             </article>
         </div>

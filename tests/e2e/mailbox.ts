@@ -43,7 +43,9 @@ export function emailActionLink(mail: TestEmail, path: string): string {
     expect(link, `Email must contain an action link for ${path}`).toBeTruthy();
     if (!link) throw new Error('Missing email action link.');
     const url = new URL(link);
-    expect(url.origin).toBe('http://127.0.0.1:8000');
+    expect(url.origin).toBe(
+        `http://127.0.0.1:${process.env.DATAMINER_E2E_PORT ?? 8000}`,
+    );
     expect(url.pathname).toBe(path);
     return url.href;
 }

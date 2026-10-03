@@ -54,7 +54,7 @@ class RecipeController
     public function index(Request $request): Response
     {
         $user = User::mustAuth();
-        $query = (new RecipeRepository())->ownedQuery($user)->with('activeVersion')->latest();
+        $query = (new RecipeRepository())->ownedQuery($user)->with(['activeVersion', 'latestCollection', 'latestVersion', 'schedule'])->latest();
         $search = $request->string('search')->trim()->toString();
         if ($search !== '') {
             Recipe::scopeSearch($query, $search);
@@ -62,16 +62,21 @@ class RecipeController
 
         return Inertia::render('collectors/Index', [
             'recipes' => $query->paginate(20)->withQueryString()->through(static function (Recipe $recipe): array {
-                $activeVersion = $recipe->activeVersion()->getResults();
-                $lastRun = $recipe->runs()->getQuery()->latest()->first();
+                $lastRun = $recipe->getLatestCollection();
+                $latestVersion = $recipe->getLatestVersion();
+                $schedule = $recipe->getSchedule();
+                $source = $recipe->getActiveVersion()?->getDefinition()?->toArray() ?? $recipe->getSetupDraft();
 
                 return [
                     'id' => $recipe->getKey(),
                     'name' => $recipe->getName(),
-                    'start_url' => $recipe->getStartUrl(),
+                    'start_url' => $source['url'] ?? $recipe->getStartUrl(),
                     'status' => $recipe->getStatus(),
-                    'active_version' => $activeVersion instanceof RecipeVersion ? $activeVersion->getVersion() : null,
-                    'last_run' => $lastRun instanceof ScrapeRun ? ['id' => $lastRun->getId(), 'status' => $lastRun->getStatus()] : null,
+                    'active_version' => $recipe->getActiveVersion()?->getVersion(),
+                    'source_type' => $source['source_type'] ?? null,
+                    'review_ready' => $latestVersion !== null && $latestVersion->getStatus() === RecipeVersion::STATUS_TESTED && $recipe->draftMatchesVersion($latestVersion),
+                    'last_run' => $lastRun === null ? null : ['id' => $lastRun->getId(), 'status' => $lastRun->getStatus(), 'rows' => $lastRun->getRowCount(), 'finished_at' => $lastRun->getFinishedAt()?->toJSON()],
+                    'schedule' => $schedule === null ? null : ['status' => $schedule->getStatus(), 'next_run_at' => $schedule->getNextRunAt()?->toJSON()],
                 ];
             }),
             'filters' => ['search' => $search],
@@ -130,7 +135,7 @@ class RecipeController
     /**
      * Show recipe lifecycle, versions, runs, and pending approval.
      */
-    public function show(int $recipe): Response
+    public function show(Request $request, int $recipe): Response
     {
         $owned = (new RecipeRepository())->findOwned($recipe, User::mustAuth());
         $versions = $owned->versions()->getQuery()->latest('version')->get()->map(static fn(RecipeVersion $version): array => [
@@ -146,6 +151,7 @@ class RecipeController
             'columns' => $version->getProposedColumns(),
             'test_summary' => $version->getTestSummary(),
             'approved_at' => $version->getApprovedAt()?->toJSON(),
+            'matches_draft' => $owned->draftMatchesVersion($version),
             'sample_run_id' => $version->runs()->getQuery()->where('kind', ScrapeRun::KIND_TEST)->where('status', ScrapeRun::STATUS_COMPLETED)->latest()->first()?->getId(),
         ])->all();
         $runs = $owned->runs()->getQuery()->latest()->limit(20)->get()->map(static fn(ScrapeRun $run): array => [
@@ -166,6 +172,7 @@ class RecipeController
                 'active_version_id' => $owned->getActiveVersionId(),
             ],
             'setupDraft' => $owned->getSetupDraft(),
+            'tab' => $request->is('collectors/*/runs') ? 'history' : (\in_array($request->query('tab'), ['overview', 'schedule', 'history'], true) ? $request->query('tab') : 'overview'),
             'assistanceAvailable' => false,
             'schedule' => (new ScheduleService())->forRecipe($owned, User::mustAuth()),
             'events' => Resolver::resolveDatabaseManager()->table('collector_events')->where('recipe_id', $owned->getKey())->latest('id')->limit(20)->get()->map(static fn(object $event): array => ['kind' => $event->kind, 'created_at' => $event->created_at, 'run_id' => $event->run_id])->all(),

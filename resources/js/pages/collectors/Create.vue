@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import AppLayout from '@/layouts/AppLayout.vue';
 import PageHeader from '@/components/ui/PageHeader.vue';
+import WorkflowSteps from '@/components/ui/WorkflowSteps.vue';
 import CollectorSetup from '@/components/ui/CollectorSetup.vue';
 import type { SharedProps } from '@/types';
 const { t } = useI18n();
@@ -26,13 +27,13 @@ function submit(form: {
 </script>
 <template>
     <AppLayout :title="t('recipes.create_title')"
-        ><div class="mx-auto max-w-3xl">
+        ><div class="mx-auto max-w-4xl">
             <Link href="/collectors" class="text-link mb-6 inline-block"
                 >← {{ t('recipes.back') }}</Link
             ><PageHeader
                 :title="t('recipes.create_title')"
-                :description="t('recipes.create_help')"
-            /><CollectorSetup
+                :description="t('redesign.source_help')"
+            /><WorkflowSteps :current="0" /><CollectorSetup
                 :errors="page.props.errors"
                 :processing="processing"
                 @submit="submit"

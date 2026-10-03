@@ -9,6 +9,7 @@ use App\Models\ScrapeRow;
 use App\Models\ScrapeRun;
 use App\Models\ScrapeRunColumn;
 use App\Models\User;
+use App\Scraping\RecipeDefinition;
 use Database\Factories\RecipeFactory;
 use Database\Factories\RecipeVersionFactory;
 use Database\Factories\ScrapeRunFactory;
@@ -63,4 +64,25 @@ use Thinkycz\LaravelCore\Support\Typer;
     $recipe->update(['active_version_id' => $version->getKey()]);
     $this->be($user, 'users')->post('/collectors/' . $recipe->getKey() . '/runs/start')->assertStatus(422);
     Queue::assertNothingPushed();
+});
+
+\test('preview activation reflects the tested immutable version and current draft', function (): void {
+    $user = UserFactory::new()->createOne();
+    $definition = RecipeDefinition::fromArray(['schema_version' => 1, 'source_type' => 'json', 'url' => 'https://example.com/data', 'fields' => [['name' => 'name', 'path' => 'name', 'type' => 'string', 'required' => true]]]);
+    $recipe = RecipeFactory::new()->for($user)->createOne(['setup_draft' => $definition->toArray()]);
+    $version = RecipeVersionFactory::new()->for($recipe)->createOne(['definition_format' => 'definition', 'definition' => $definition->toArray(), 'checksum' => $definition->checksum(), 'status' => RecipeVersion::STATUS_TESTED]);
+    $run = ScrapeRunFactory::new()->createOne(['user_id' => $user->getKey(), 'recipe_id' => $recipe->getKey(), 'recipe_version_id' => $version->getKey(), 'kind' => ScrapeRun::KIND_TEST, 'status' => ScrapeRun::STATUS_COMPLETED]);
+    $this->be($user, 'users')->get('/runs/' . $run->getId(), $this->inertiaHeaders())
+        ->assertJsonPath('props.preview.version_id', $version->getKey())->assertJsonPath('props.preview.can_activate', true);
+    $recipe->update(['setup_draft' => [...$definition->toArray(), 'url' => 'https://example.com/changed']]);
+    $this->get('/runs/' . $run->getId(), $this->inertiaHeaders())->assertJsonPath('props.preview.can_activate', false)->assertJsonPath('props.preview.matches_draft', false);
+    $this->get('/collectors', $this->inertiaHeaders())->assertJsonPath('props.recipes.data.0.review_ready', false);
+    $this->get('/collectors/' . $recipe->getKey(), $this->inertiaHeaders())->assertJsonPath('props.versions.0.matches_draft', false);
+    $recipe->update(['setup_draft' => $definition->toArray()]);
+    $run->update(['status' => ScrapeRun::STATUS_FAILED]);
+    $this->get('/runs/' . $run->getId(), $this->inertiaHeaders())->assertJsonPath('props.preview.can_activate', false);
+    $run->update(['status' => ScrapeRun::STATUS_COMPLETED]);
+    $version->update(['status' => RecipeVersion::STATUS_APPROVED]);
+    $recipe->update(['active_version_id' => $version->getKey()]);
+    $this->get('/runs/' . $run->getId(), $this->inertiaHeaders())->assertJsonPath('props.preview.can_activate', false)->assertJsonPath('props.preview.is_active', true);
 });

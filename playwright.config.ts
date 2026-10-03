@@ -17,6 +17,10 @@ if (realpathSync(database) !== database) {
     throw new Error('Refusing a linked browser test database.');
 }
 process.env.DATAMINER_E2E_DATABASE = database;
+const port = Number(process.env.DATAMINER_E2E_PORT ?? 8000);
+if (!Number.isInteger(port) || port < 1024 || port > 65535)
+    throw new Error('Invalid isolated E2E port.');
+const baseURL = `http://127.0.0.1:${port}`;
 const useChrome = process.env.DATAMINER_E2E_CHROME === '1';
 
 export default defineConfig({
@@ -28,7 +32,7 @@ export default defineConfig({
     reporter: [['list'], ['html', { open: 'never' }]],
     timeout: 30000,
     use: {
-        baseURL: 'http://127.0.0.1:8000',
+        baseURL,
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
         actionTimeout: 10000,
@@ -45,11 +49,13 @@ export default defineConfig({
     ],
     webServer: {
         command: 'node tests/e2e/start-server.mjs',
-        url: 'http://127.0.0.1:8000/up',
+        url: `${baseURL}/up`,
         reuseExistingServer: false,
         timeout: 60000,
         env: {
             APP_ENV: 'testing',
+            APP_URL: baseURL,
+            DATAMINER_E2E_PORT: String(port),
             DB_CONNECTION: 'sqlite',
             DB_DATABASE: database,
             DATAMINER_E2E_DATABASE: database,

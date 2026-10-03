@@ -71,6 +71,7 @@ class ScrapeRunController
     {
         $run = (new RecipeRepository())->findOwnedRun($scrapeRun, User::mustAuth());
         $recipe = $run->recipe()->getResults();
+        $version = $run->recipeVersion()->getResults();
         $columns = $run->columns()->getQuery()->orderBy('position')->get();
         $allowed = $columns->mapWithKeys(static fn(ScrapeRunColumn $column): array => [$column->getColumnKey() => $column])->all();
         $visible = $this->visibleColumns($request, \array_keys($allowed));
@@ -80,6 +81,13 @@ class ScrapeRunController
 
         return Inertia::render('runs/Show', [
             'recipe' => $recipe === null ? null : ['id' => $recipe->getKey(), 'name' => $recipe->getName()],
+            'preview' => $run->getKind() !== ScrapeRun::KIND_TEST || $version === null || $recipe === null ? null : [
+                'version_id' => $version->getKey(),
+                'version' => $version->getVersion(),
+                'matches_draft' => $recipe->draftMatchesVersion($version),
+                'can_activate' => $run->getStatus() === ScrapeRun::STATUS_COMPLETED && $version->getStatus() === RecipeVersion::STATUS_TESTED && $recipe->draftMatchesVersion($version),
+                'is_active' => $recipe->getActiveVersionId() === $version->getKey(),
+            ],
             'run' => [
                 'id' => $run->getId(),
                 'kind' => $run->getKind(),

@@ -12,6 +12,9 @@ test.describe('Locale switcher', () => {
         await expect(
             page.getByRole('heading', { name: 'Data collectors' }),
         ).toBeVisible();
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await expect(
             page.getByRole('button', { name: 'Log out' }),
         ).toBeVisible();
@@ -25,6 +28,7 @@ test.describe('Locale switcher', () => {
         await expect(
             page.getByRole('heading', { name: 'Nastavení' }),
         ).toBeVisible();
+        await page.getByRole('button', { name: 'Účet', exact: true }).click();
         await expect(
             page.getByRole('button', { name: 'Odhlásit se' }),
         ).toBeVisible();
@@ -35,6 +39,7 @@ test.describe('Locale switcher', () => {
         await expect(
             page.getByRole('heading', { name: 'Nastavenia' }),
         ).toBeVisible();
+        await page.getByRole('button', { name: 'Účet', exact: true }).click();
         await expect(
             page.getByRole('button', { name: 'Odhlásiť sa' }),
         ).toBeVisible();
@@ -45,6 +50,9 @@ test.describe('Locale switcher', () => {
         await expect(
             page.getByRole('heading', { name: 'Settings' }),
         ).toBeVisible();
+        await page
+            .getByRole('button', { name: 'Account', exact: true })
+            .click();
         await expect(
             page.getByRole('button', { name: 'Log out' }),
         ).toBeVisible();
@@ -63,6 +71,7 @@ test.describe('Locale switcher', () => {
             .getByRole('link', { name: 'Sběrače dat', exact: true })
             .click();
         await page.waitForURL(/\/collectors$/);
+        await page.getByRole('button', { name: 'Účet', exact: true }).click();
         await page
             .getByRole('link', { name: 'Nastavení', exact: true })
             .click();
